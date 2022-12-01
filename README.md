@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # MP4
 
 
@@ -90,3 +91,26 @@ For open source projects, say how it is licensed.
 
 ## Project status
 If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+=======
+# README for MP3
+
+## How to run the project:
+
+1. run FMaster.py at virtual machine 1.
+     ```
+    python3 FMaster.py
+   ```
+2. run file_server.py at virtual machine 1.
+    ```
+   python3 file_server.py
+   ```
+3. continue to join all the other node., by running file_server.py at them
+
+## commands are listed as follow:
+- put localfilename sdfsfilename
+- get sdfsfilename localfilename
+- delete sdfsfilename
+- get_versions sdfsfilename num_versions localfilename
+- ls sdfsfilename
+- store
+>>>>>>> 2cb686c (hotstandby and job assignment code)
