@@ -227,6 +227,7 @@ class FLeader(server.Node):
     # COMMAND "newLeader" -> call this function in the run function when you get a command of type "newLeader"
     # if a node is not the leader or hotstandby, and it gets a message from the hotstandby thats its the new leader, update its current master nodes
     def update_workers_leader_node(self, newLeader):
+        # TODO ADD LOCK 
         self.master_ip = newLeader
 
     # COMMAND "executeQuery" -> call this function somewhere in the run function
@@ -318,14 +319,16 @@ class FLeader(server.Node):
                 if command_type == 'newLeader':
                     newLeader = decoded_command['command_content']
                     self.update_workers_leader_node(self, newLeader)
+                if command_type == 'executeQuery':
+                    query = decoded_command['command_content']
+                    self.run_query(query)
                 if self.host == self.master_ip:
                     self.assign_queries()
+                    # TODO asisgn to worker_nodes as you get them
+                    # TODO add it to put_
                     if command_type == 'job':
                         job = decoded_command['command_content']
                         self.update_leader_jobs(job)
-                    if command_type == 'executeQuery':
-                        query = decoded_command['command_content']
-                        self.run_query(query)
                     if command_type == 'finishedJob':
                         ackedNode = decoded_command['command_content']
                         self.handle_successful_ack(ackedNode)
