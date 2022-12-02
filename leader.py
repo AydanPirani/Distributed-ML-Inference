@@ -189,11 +189,13 @@ class FLeader(server.Node):
         self.workInProgress = {}
         self.jobs_port = jobs_port
         self.hotstandby_ip = socket.gethostbyname(master_host) # initialized value ??
+        self.master_lock = threading.Lock()
+        self.hotstandby_lock = threading.Lock()
 
     # new structures -> 
-    # queries = []
-    # jobs = []
-    # workInProgress = map<node, query> 
+    # queries = [[model, [query]]]
+    # jobs = mqp<model, [[query]]>
+    # workInProgress = map<node, [query]> 
 
     # *** General threads ***
 
@@ -206,33 +208,51 @@ class FLeader(server.Node):
     # muticast im hotstandby to all nodes 
     def multicast_hotstandby(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            self.membership_lock.acquire()
             for member in self.membership_list:
                 index = self.membership_list.index(member)
                 host = self.membership_list[index].split(':')[0]
                 s.sendto(json.dumps({'command_type': 'newLeader', 'command_content': self.master_ip}).encode(), (host, self.jobs_port))
+            self.membership_lock.release()
 
     # HELPER function for assign_leader whenever the leader is changed ->
     # if a leader fails, assign hotstandby as new leader, assign a new hotstandby 
     # hotstandby multicasts that it's a leader to all nodes
     def handle_leader_failure(self, secondHighestIp):
+        self.master_lock.acquire()
         self.master_ip = self.hotstandby_ip
-        self.hotstandby_ip = secondHighestIp
+        self.master_lock.release()
+        self.hotstandby_lock.acquire()
+        self.hotstandby_ip = secondHighestIp 
+        self.hotstandby_lock.release()
         self.multicast_hotstandby()
 
-    # THREAD -> to constantly assign leader and hotstandby 
+    # THREAD -> to constantly assign leader and hotstandby  
     def assign_leader(self):
-        # TODO assign leader functionality 
-        self.handle_leader_failure(secondHighestIp)
+        # TODO assign leader functionality
+        ids = []
+        for member in self.membership_list:
+            id = self.membership_list[member].split(':')[0]
+            ids.append(id)
+        ids.sort()
+        self.master_lock.acquire()
+        self.master_ip = ids[0]
+        self.master_lock.release()
+        self.hotstandby_lock.acquire()
+        self.hotstandby_ip = ids[1]
+        self.handle_leader_failure(self.hotstandby_ip)
+        self.hotstandby_lock.release()
 
     # COMMAND "newLeader" -> call this function in the run function when you get a command of type "newLeader"
     # if a node is not the leader or hotstandby, and it gets a message from the hotstandby thats its the new leader, update its current master nodes
     def update_workers_leader_node(self, newLeader):
-        # TODO ADD LOCK 
+        self.master_lock.acquire()
         self.master_ip = newLeader
+        self.master_lock.release()
 
     # COMMAND "executeQuery" -> call this function somewhere in the run function
     # run the model and stuffs
-    # send an ack to the leader when finished 
+    # send an ack to the leader when finished
     def run_query(self):
         # run_model()
         # TODO update run_query to run the query -> un_model()
@@ -268,6 +288,7 @@ class FLeader(server.Node):
     # for every node in the membership list, for every query in queries, assign a node to a query. 
     # Add each <node, query> pair into work_in_progress map and delete it from the queries queue
     def assign_queries(self):
+        self.membership_lock.acquire()
         for member in self.membership_list: 
             if self.workInProgress.has_key(member) == False:
                 if(len(self.queries) != 0):
@@ -277,6 +298,7 @@ class FLeader(server.Node):
                     host = self.membership_list[index].split(':')[0]
                     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                         s.sendto(json.dumps({'command_type': 'executeQuery', 'command_content': [self.workInProgress[member]]}).encode(), (host, self.jobs_port)) # change port??
+        self.membership_lock.release()
 
 
     # COMMAND "failedNode" -> this is called in the run function when you get a command of type "failedNode"
@@ -291,17 +313,17 @@ class FLeader(server.Node):
 
     # COMMAND "job" -> call this function in the run function when you get a command of type "job"
     # if a job is sent to the leader, add the job to the jobs queue, and add the query to the queries queue
-    def update_leader_jobs(self, jobEntry):
+    def update_leader_jobs(self, model, batch):
         # jobEntry of type [model, query]
-        model = jobEntry[0]
-        query = jobEntry[1]
+        # model = jobEntry[0]
+        # query = jobEntry[1]
         if (model in self.jobs):
             temp = self.jobs[model]
-            temp.append(query)
-            self.jobs[model] = query
+            temp.append(batch)
+            self.jobs[model] = batch
         else:
-            self.jobs[model] = [query]
-        self.queries.append((model, query))
+            self.jobs[model] = [batch]
+        self.queries.append((model, batch))
 
     def update_hotstandby(self, workInProgress_, queries_, jobs_):
         self.workInProgress = workInProgress_
@@ -323,12 +345,12 @@ class FLeader(server.Node):
                     query = decoded_command['command_content']
                     self.run_query(query)
                 if self.host == self.master_ip:
-                    self.assign_queries()
+                    self.assign_queries() # also had assign_queries here, so it will update if the workiinprogress adds a batch back to the queries structure as well
                     # TODO asisgn to worker_nodes as you get them
                     # TODO add it to put_
-                    if command_type == 'job':
-                        job = decoded_command['command_content']
-                        self.update_leader_jobs(job)
+                    # if command_type == 'job':
+                    #     job = decoded_command['command_content']
+                    #     self.update_leader_jobs(job)
                     if command_type == 'finishedJob':
                         ackedNode = decoded_command['command_content']
                         self.handle_successful_ack(ackedNode)
@@ -405,6 +427,7 @@ class FLeader(server.Node):
         elif command == 'multiget':
             t = threading.Thread(target=self.handle_multiple_get_request, args=(conn,))
             t.start()
+
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -751,14 +774,16 @@ class FLeader(server.Node):
                 self.bytes = 0
                 self.start_time = time.time()
                 self.bytes_lock.release()
+            elif command == "job":
+                #TODO change to account for multiple queries or batch
+                model, query = parsed_command[1], parsed_command[2]
+                self.update_leader_jobs(model, query)
+                self.assign_queries()
+
             else:
                 print('command not found!')
             end_time = time.time()
             print('time consumed: ', end_time - start_time)
-
-
-
-
 
 
 if __name__ == '__main__':
