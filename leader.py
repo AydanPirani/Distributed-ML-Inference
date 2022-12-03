@@ -644,6 +644,7 @@ class FLeader(server.Node):
                     continue
 
                 self.job_queue.put((priority, name, job))
+                self.put(input_source, f"internal-{input_source}")
 
             while not self.job_queue.empty():
                 priority, name, job = self.job_queue.get()
@@ -656,9 +657,29 @@ class FLeader(server.Node):
 
                 self.batch_queue = [(start * batch_size, min((start + 1) * batch_size, num_queries))for start in range(num_batches)]
                 print("batch queue: ", self.batch_queue)
-                # self.assign_batches()
+                self.assign_batches()
                 
-            
+
+    def put(self, localfilepath, sdfsfileid):
+        ips = self.get_ip(sdfsfileid)
+        if not ips:
+            index = self.filehash(sdfsfileid)
+            ips = self.getAllReplicas(index)
+        timestamp = time.time()
+        for ip in ips:
+            t = threading.Thread(target=self.handle_put, args = (localfilepath, sdfsfileid, ip, timestamp))
+            t.start()
+        i = 0
+        command_id = sdfsfileid + '-' + str(timestamp)
+        while i < 100:
+            self.put_lock.acquire()
+            self.put_ack_cache.setdefault(command_id, 0)
+            cnt = self.put_ack_cache[command_id]
+            self.put_lock.release()
+            if cnt >= 3:
+                break
+            time.sleep(2)
+            i += 1
 
     def run(self):
         self.join()
@@ -674,25 +695,7 @@ class FLeader(server.Node):
             start_time = time.time()
             if parsed_command[0] == 'put':
                 localfilepath, sdfsfileid = parsed_command[1], parsed_command[2]
-                ips = self.get_ip(sdfsfileid)
-                if not ips:
-                    index = self.filehash(sdfsfileid)
-                    ips = self.getAllReplicas(index)
-                timestamp = time.time()
-                for ip in ips:
-                    t = threading.Thread(target=self.handle_put, args = (localfilepath, sdfsfileid, ip, timestamp))
-                    t.start()
-                i = 0
-                command_id = sdfsfileid + '-' + str(timestamp)
-                while i < 100:
-                    self.put_lock.acquire()
-                    self.put_ack_cache.setdefault(command_id, 0)
-                    cnt = self.put_ack_cache[command_id]
-                    self.put_lock.release()
-                    if cnt >= 3:
-                        break
-                    time.sleep(2)
-                    i += 1
+                self.put(localfilepath, sdfsfileid)
                 print('put complete.')
             elif parsed_command[0] == 'get':
                 sdfsfileid, localfilepath = parsed_command[1], parsed_command[2]
