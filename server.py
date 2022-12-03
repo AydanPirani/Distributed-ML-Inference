@@ -6,7 +6,7 @@ import json
 # from macpath import join
 
 # configuration
-INTRODUCER_HOST = socket.gethostbyname('fa22-cs425-8601.cs.illinois.edu')
+INTRODUCER_HOST = socket.gethostbyname('fa22-cs425-3601.cs.illinois.edu')
 MACHINE_NUM = int(socket.gethostname()[13:15])
 LOG_FILEPATH = f'machine.{MACHINE_NUM}.log'
 PING_PORT = 20240
