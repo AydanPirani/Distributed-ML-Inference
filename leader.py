@@ -192,8 +192,8 @@ class FLeader(server.Node):
         self.master_lock = threading.Lock()
         self.hotstandby_lock = threading.Lock()
 
-    # new structures -> 
-    # queries = [[model, [batch]]]
+     
+    # batches = [[model, [batch]]]
     # jobs = mqp<model, [[batch]]>
     # workInProgress = map<node, [batch]> 
 
@@ -265,11 +265,11 @@ class FLeader(server.Node):
     # assign jobs to nodes
     # def handle_leader_functionality(self):
     #     while(1):
-    #         assign_queries()
+    #         assign_batches()
     #         handle_successful_ack()
 
     # COMMAND "finishedJob" -> this is called in the run function when you get a command of type "finishedJob"
-    # if the leader gets an ack from a node, delete that batch from its work_in_progress queue, delete the job from job queue if queries for it are done
+    # if the leader gets an ack from a node, delete that batch from its work_in_progress queue, delete the job from job queue if batches for it are done
     # send a message to hot standby node with new structures
     def handle_successful_ack(self, acked_node):
         acked_node = acked_node[0]
@@ -280,17 +280,17 @@ class FLeader(server.Node):
         donebatch = entry[1]
         del self.workInProgress[acked_node]
         # self.batches.pop((doneModel, donebatch))
-        jobQueries = self.jobs[doneModel] 
-        jobQueries.remove(donebatch)
-        self.jobs[doneModel] = jobQueries
+        jobBatches = self.jobs[doneModel] 
+        jobBatches.remove(donebatch)
+        self.jobs[doneModel] = jobBatches
         if(len(self.jobs[doneModel]) == 0):
             del self.jobs[doneModel]
 
 
     # CALLED ALWAYS -> function for handle_leader_functionality ->
-    # for every node in the membership list, for every batch in queries, assign a node to a batch. 
-    # Add each <node, batch> pair into work_in_progress map and delete it from the queries queue
-    def assign_queries(self):
+    # for every node in the membership list, for every batch in batches, assign a node to a batch. 
+    # Add each <node, batch> pair into work_in_progress map and delete it from the batches queue
+    def assign_batches(self):
         self.membership_lock.acquire()
         for member in self.membership_list: 
             if member not in self.workInProgress.keys():
@@ -301,7 +301,7 @@ class FLeader(server.Node):
                     self.workInProgress[host] = self.batches[0]
                     self.batches.pop(0)
                     # print("MYHOST: ", self.host, "actual", socket.gethostbyname(self.host))
-                    # print("ASSIGN_QUERIES", member)
+                    # print("ASSIGN_batches", member)
                     # print("WIP: ", self.workInProgress)
                     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                         s.sendto(json.dumps({'command_type': 'executeBatch', 'command_content': [self.workInProgress[host]]}).encode(), (host, self.jobs_port)) # change port??
@@ -309,7 +309,7 @@ class FLeader(server.Node):
 
 
     # COMMAND "failedNode" -> this is called in the run function when you get a command of type "failedNode"
-    # if the leader gets a failed node notice for N, then remove <N, batch> from the work_in_progress map and put the batch back into the queries queue
+    # if the leader gets a failed node notice for N, then remove <N, batch> from the work_in_progress map and put the batch back into the batches queue
     # send a message to hot standby node with new structures
     def handle_failed_ack(self, failedNode):
         (model, batch) = self.workInProgress[failedNode]
@@ -319,7 +319,7 @@ class FLeader(server.Node):
             s.sendto(json.dumps({'command_type': 'updateHotstandby', 'command_content': [self.workInProgress, self.batches, self.jobs]}).encode(), (self.hotstandby_ip, self.jobs_port))
 
     # COMMAND "job" -> call this function in the run function when you get a command of type "job"
-    # if a job is sent to the leader, add the job to the jobs queue, and add the batch to the queries queue
+    # if a job is sent to the leader, add the job to the jobs queue, and add the batch to the batches queue
     def update_leader_jobs(self, model, batch):
         # jobEntry of type [model, batch]
         # model = jobEntry[0]
@@ -332,9 +332,9 @@ class FLeader(server.Node):
             self.jobs[model] = [batch]
         self.batches.append((model, batch))
 
-    def update_hotstandby(self, workInProgress_, queries_, jobs_):
+    def update_hotstandby(self, workInProgress_, batches_, jobs_):
         self.workInProgress = workInProgress_
-        self.batches = queries_
+        self.batches = batches_
         self.jobs = jobs_
 
 
@@ -352,7 +352,7 @@ class FLeader(server.Node):
                     batch = decoded_command['command_content']
                     self.run_batch(batch)
                 if self.host == self.master_ip:
-                    self.assign_queries() # also had assign_queries here, so it will update if the workiinprogress adds a batch back to the queries structure as well
+                    self.assign_batches() # also had assign_batches here, so it will update if the workiinprogress adds a batch back to the batches structure as well
                     # if command_type == 'job':
                     #     job = decoded_command['command_content']
                     #     self.update_leader_jobs(job)
@@ -365,8 +365,8 @@ class FLeader(server.Node):
                         # TODO add functionality to send message "failedNode" when a node fails whereever that's handled
                 elif self.host == self.hotstandby_ip:
                     if command_type == 'updateHotstandby':
-                        workInProgress_, queries_, jobs_ = decoded_command['command_content']
-                        self.update_hotstandby(workInProgress_, queries_, jobs_)
+                        workInProgress_, batches_, jobs_ = decoded_command['command_content']
+                        self.update_hotstandby(workInProgress_, batches_, jobs_)
                     
 
 
@@ -785,7 +785,7 @@ class FLeader(server.Node):
                 for i in range(2, len(parsed_command)):
                     batch.append(parsed_command[i])
                 self.update_leader_jobs(model, batch)
-                self.assign_queries()
+                self.assign_batches()
 
             else:
                 print('command not found!')
