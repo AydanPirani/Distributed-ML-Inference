@@ -257,7 +257,7 @@ class FLeader(server.Node):
         # run_model()
         # TODO update run_batch to run the batch -> un_model()
         # multicast
-        print("RUNNING batch: ", batch)
+        # print("RUNNING batch: ", batch)
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.sendto(json.dumps({'command_type': 'finishedJob', 'command_content': [self.host]}).encode(), (self.master_ip, self.jobs_port))
 
@@ -276,8 +276,8 @@ class FLeader(server.Node):
     # send a message to hot standby node with new structures
     def handle_successful_ack(self, acked_node):
         acked_node = acked_node[0]
-        print("ACKED: ",acked_node)
-        print("WIPSUCCESS: ", self.workInProgress[acked_node])
+        # print("ACKED: ",acked_node)
+        # print("WIPSUCCESS: ", self.workInProgress[acked_node])
         entry = self.workInProgress[acked_node]
         doneModel = entry[0]
         donebatch = entry[1]
@@ -299,13 +299,13 @@ class FLeader(server.Node):
             if member not in self.workInProgress.keys():
                 if(len(self.batches) != 0):
                     host = member.split(':')[0]
+                    if host == self.master_ip:
+                        continue
                     self.workInProgress[host] = self.batches[0]
                     self.batches.pop(0)
-                    # index = self.membership_list.index(member)
-                    # host = self.membership_list[index].split(':')[0]
-                    print("MYHOST: ", self.host, "actual", socket.gethostbyname(self.host))
-                    print("ASSIGN_QUERIES", member)
-                    print("WIP: ", self.workInProgress)
+                    # print("MYHOST: ", self.host, "actual", socket.gethostbyname(self.host))
+                    # print("ASSIGN_QUERIES", member)
+                    # print("WIP: ", self.workInProgress)
                     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                         s.sendto(json.dumps({'command_type': 'executeBatch', 'command_content': [self.workInProgress[host]]}).encode(), (host, self.jobs_port)) # change port??
         self.membership_lock.release()
@@ -784,11 +784,12 @@ class FLeader(server.Node):
                 self.bytes = 0
                 self.start_time = time.time()
                 self.bytes_lock.release()
-            elif command == "job":
+            elif parsed_command[0] == "job":
                 #TODO change to account for multiple queries or batch
-                # model, batch = parsed_command[1], parsed_command[2]
-                model = "hi"
-                batch = ["ok", "bye"]
+                model = parsed_command[1]
+                batch = []
+                for i in range(2, len(parsed_command)):
+                    batch.append(parsed_command[i])
                 self.update_leader_jobs(model, batch)
                 self.assign_queries()
 
