@@ -19,7 +19,7 @@ PING_TIMEOUT = 2
 MASTER_PORT = 20086
 FILE_PORT = 10086
 GET_ADDR_PORT = 10087
-JOBS_PORT = 20087 # WHICH PORT ?? # TODO change port jobs_port 
+JOBS_PORT = 20087 
 
 def send_file(conn: socket.socket, localfilepath, sdfsfileid, timestamp):
     header_dic = {
@@ -199,8 +199,6 @@ class FLeader(server.Node):
 
     # *** General threads ***
 
-    # TODO change port jobs_port 
-    # TODO assign leader functionality 
     # TODO update run_batch to run the batch
     # TODO add functionality to send message "failedNode" when a node fails where that's handled
 
@@ -229,7 +227,6 @@ class FLeader(server.Node):
 
     # THREAD -> to constantly assign leader and hotstandby  
     def assign_leader(self):
-        # TODO assign leader functionality
         ids = []
         for member in self.membership_list:
             id = self.membership_list[member].split(':')[0]
@@ -356,8 +353,6 @@ class FLeader(server.Node):
                     self.run_batch(batch)
                 if self.host == self.master_ip:
                     self.assign_queries() # also had assign_queries here, so it will update if the workiinprogress adds a batch back to the queries structure as well
-                    # TODO asisgn to worker_nodes as you get them
-                    # TODO add it to put_
                     # if command_type == 'job':
                     #     job = decoded_command['command_content']
                     #     self.update_leader_jobs(job)
@@ -785,7 +780,6 @@ class FLeader(server.Node):
                 self.start_time = time.time()
                 self.bytes_lock.release()
             elif parsed_command[0] == "job":
-                #TODO change to account for multiple queries or batch
                 model = parsed_command[1]
                 batch = []
                 for i in range(2, len(parsed_command)):

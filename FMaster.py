@@ -7,11 +7,10 @@ import time
 MASTER_PORT = 20086
 FILE_PORT = 10086
 GET_ADDR_PORT = 10087
-
-
+JOBS_PORT = 20087 
 
 class FMaster:
-    def __init__(self, master_port: int, file_port: int):
+    def __init__(self, master_port: int, file_port: int, jobs_port: int):
         self.master_port = master_port
         self.ntf_lock = threading.Lock()
         self.node_to_file = {}
@@ -19,6 +18,7 @@ class FMaster:
         self.file_to_node = {}
         self.host = socket.gethostbyname(socket.gethostname())
         self.file_port = file_port
+        self.jobs_port = jobs_port
 
     # remove node from filestructures
     def repair(self, ip):
@@ -52,6 +52,9 @@ class FMaster:
             for sdfsfileid in sdfsfileids:
                 print('  ', sdfsfileid)
         print('time consumed: ', end_time-start_time)
+        # TODO what's master_ip? 
+        # with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        #     s.sendto(json.dumps({'command_type': 'failedNode', 'command_content': [ip]}).encode(), (self.master_ip, self.jobs_port))
 
 
     def issue_repair(self, sdfsfileid, ip, ips):
@@ -132,6 +135,6 @@ class FMaster:
                 self.ftn_lock.release()
 
 if __name__ == '__main__':
-    master = FMaster(MASTER_PORT, FILE_PORT)
+    master = FMaster(MASTER_PORT, FILE_PORT, JOBS_PORT)
     master.run()
 
