@@ -30,7 +30,3 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         print(len(data))
         with open('received', 'wb') as f:
             f.write(data)
-
-
-
-
