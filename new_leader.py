@@ -489,7 +489,6 @@ class FServer(server.Node):
 
         with self.seen_lock:
             if input_file not in self.seen_jobs:
-                self.get(input_file, f"internal-{input_file}")
                 self.seen_jobs.add(input_file)
 
         with open(input_file, "r") as i_f:
@@ -531,8 +530,7 @@ class FServer(server.Node):
         with self.batches_lock:
             self.total_batches += 1
             c = "\n"
-            print(predictions)
-            print(f"output from {finished_ip}:{c.join(predictions)}\n average ms per query: {time/query_size}. total batches processed = {self.total_batches}")
+            print(f"output from {finished_ip}:{predictions}\naverage ms per query: {time/query_size}. total batches processed = {self.total_batches}")
             if finished_ip in self.running_batches:
                 self.running_batches.pop(finished_ip)
         self.reassign()
@@ -561,7 +559,7 @@ class FServer(server.Node):
                             continue
 
                         input_file, model_name, indices = self.batch_queue.get()
-                        self.running_batches[host] = indices
+                        self.running_batches[host] = (input_file, model_name, indices)
                         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                             self.handle_send(["executeBatch", input_file, model_name, indices], host)
                 print("jobs per node:", self.running_batches)

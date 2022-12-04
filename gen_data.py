@@ -1,6 +1,6 @@
 import numpy as np
 
-num_images = 5
+num_images = 9
 
 c = 3
 h = 224
@@ -14,9 +14,7 @@ for i in range(num_images):
     final = np.insert(rand, 0, [3, h, w, c])
     f.write(",".join(final.astype(str)))
     f.write("\n")
-    print(final.shape)
 
-    print(final[0:6])
 
 f.close()
     
