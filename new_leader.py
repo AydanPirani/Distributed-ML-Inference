@@ -539,7 +539,8 @@ class FServer(server.Node):
         _, finished_ip, predictions, time, query_size = json.loads(conn.recv(BUFFER_SIZE).decode())
         with self.batches_lock:
             self.total_batches += 1
-            print(f"output from {finished_ip}:{'\n'.join(predictions)}\n average queries: {time/query_size}. total batches processed = {self.total_batches}")
+            c = "\n"
+            print(f"output from {finished_ip}:{c.join(predictions)}\n average queries: {time/query_size}. total batches processed = {self.total_batches}")
             if finished_ip in self.running_batches:
                 self.running_batches.pop(finished_ip)
         self.reassign()
