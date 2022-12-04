@@ -203,6 +203,7 @@ class FServer(server.Node):
 
         self.finished = False
         self.seen_jobs = set()
+        
 
     def get_ip(self, sdfsfileid):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -531,6 +532,7 @@ class FServer(server.Node):
         print("sent eveything!")
 
     def handle_finished(self, conn: socket.socket):
+        print("handling finished!")
         conn.send(b'1')
         _, finished_ip = json.loads(conn.recv(BUFFER_SIZE).decode())
         with self.batches_lock:
