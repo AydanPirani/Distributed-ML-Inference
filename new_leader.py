@@ -263,7 +263,10 @@ class FServer(server.Node):
             t = threading.Thread(target=self.handle_multiple_get_request, args=(conn,))
             t.start()
         elif command == 'executeBatch':
+            self.handle_send()
             print("in execute!")
+        elif command == 'finishedBatch':
+            self.reassign()
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -471,6 +474,7 @@ class FServer(server.Node):
         conn.send(data)
 
     def reassign(self):
+        print("in reassign, batches:", self.batch_queue)
         with self.members_lock:
             if len(self.membership_list) == 0:
                 print("no workers found! exiting")
@@ -493,7 +497,6 @@ class FServer(server.Node):
                         # if host == self.master_ip or host == self.hotstandby_ip:
                         if host == self.master_ip:
                             continue
-                        print("in here!")
 
                         indices = self.batch_queue.get()
                         self.running_batches[host] = indices
