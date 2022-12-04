@@ -505,14 +505,14 @@ class FServer(server.Node):
                 for _ in range(start, end, 1):
                     print("in second loop!")
                     line = i_f.readline().strip().split(",")
-                    dim_ct = line[0]
+                    dim_ct = int(float(line[0])//1)
 
                     dims = []
 
                     for i in range(dim_ct):
                         dims.append(line[i])
                         
-                    data = np.array(line[dim_ct+1:], )
+                    data = np.array(line[dim_ct+1:], ).astype(np.float64)
                     print(dims, len(data))
 
     def reassign(self):
