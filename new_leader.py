@@ -12,7 +12,8 @@ import numpy as np
 from math import ceil
 from queue import Queue, PriorityQueue
 from keras.preprocessing.image import image, load_img, img_to_array
-from tensorflow.keras.applications.resnet50 import ResNet50, MobileNet
+from tensorflow.keras.applications.resnet50 import ResNet50
+from tensorflow.keras.applications.mobilenet import MobileNet
 from tensorflow.keras.applications.imagenet_utils import preprocess_input, decode_predictions
 
 
