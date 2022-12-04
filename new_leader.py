@@ -248,6 +248,7 @@ class FServer(server.Node):
                 t.start()
 
     def requestHandleThread(self, conn: socket.socket):
+        global MASTER_HOST
         command = conn.recv(BUFFER_SIZE).decode()
         if command == 'put':
             t = threading.Thread(target=self.handle_put_request, args=(conn,))
@@ -276,6 +277,20 @@ class FServer(server.Node):
         elif command == 'finishedBatch':
             t = threading.Thread(target=self.handle_finished, args=(conn,))
             t.start()
+        elif command == 'beginningJob':
+            t = threading.Thread(target=self.handle_beginning, args=conn)
+        elif command == 'newLeader':
+            conn.send(b'1')
+            decoded_command = conn.recv(BUFFER_SIZE).decode()
+            MASTER_HOST = decode_command[1]
+        elif command == 'beginningInference':
+            t = threading.Thread(target=self.handle_beginning, args=(conn,))
+            t.start()
+        elif command == 'finishedJob':
+            conn.send(b'1')
+            if not self.job_queue.empty:
+                self.seen_jobs.add(self.job_queue.get())
+
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -567,6 +582,10 @@ class FServer(server.Node):
     def handle_inference(self, config):
         with open(config, "r") as f:
             jobs = json.loads(f.read())["data"]
+
+            if self.host != STANDBY_HOST:
+                self.handle_send(["beginning", json.dumps(jobs)], STANDBY_HOST)
+
             for job in jobs:
                 name = job["name"]
                 enabled = job["enabled"]
@@ -585,6 +604,11 @@ class FServer(server.Node):
                 with self.finished_lock:
                     self.finished = False
                 priority, name, job = self.job_queue.get()
+                if name in self.seen_jobs:
+                    if self.job_queue.empty():
+                        print("finished!")
+                        exit(1)
+                    priority, name, job = self.job_queue.get()
                 print(f"running {job}")
 
                 batch_size = job.get("batch-size", 1)
@@ -610,6 +634,26 @@ class FServer(server.Node):
 
                     
         print("finished!")
+
+    def handle_beginning(self, conn:socket.socket):
+        conn.send(b'1')
+        decoded_command = conn.recv(BUFFER_SIZE).decode()
+
+        jobs = json.loads(decoded_command[1])
+        print("jobs:", jobs)
+        for job in jobs:
+            name = job["name"]
+            enabled = job["enabled"]
+            priority = job.get("priority", 1000)
+            batch_size = job.get("batch-size", 1)
+            num_queries = job.get("num-queries", 1)
+            model_name = job.get("model", None)
+            input_source = job.get("input-source", None)
+
+            if not enabled or not input_source or not model_name or num_queries == 0 or batch_size == 0 or name in self.seen_jobs:
+                continue
+
+            self.job_queue.put((priority, name, job))
 
     def put(self, localfilepath, sdfsfileid):
         ips = self.get_ip(sdfsfileid)
@@ -666,16 +710,17 @@ class FServer(server.Node):
         with self.members_lock:
             for member in self.membership_list:
                 host = member.split(":")[0]
-                t = threading.Thread(target=self.handle_send, args=(["newLeader", self.host],))
+                t = threading.Thread(target=self.handle_send, args=(["newLeader", self.host],host))
                 t.start()
 
     def check_leader(self):
+        global MASTER_HOST
         while True:
             with self.members_lock:
-                if MASTER_HOST not in set(map(lambda x: x.split(":")[0], self.membership_list.keys)):
-                    print("leader failed!")
+                if MASTER_HOST not in set(map(lambda x: x.split(":")[0], self.membership_list)):
                     self.multicast_leader()
-                    return
+                    MASTER_HOST = self.host
+                    break
             time.sleep(3)
         return
 
