@@ -238,12 +238,14 @@ class FServer(server.Node):
                 t.start()
 
     def inferenceBackground(self):
-        print("in backgroun!")
+        print("in backgroun!", self.host)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self.host, INFERENCE_PORT))
             s.listen()
             while True:
+                print("pre-accept!")
                 conn, addr = s.accept()
+                print("post-accept!")
                 t = threading.Thread(target=self.inferenceHandleThread, args=(conn, ))
                 t.start()
  
