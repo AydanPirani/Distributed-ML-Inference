@@ -13,6 +13,7 @@ for i in range(num_images):
     rand = np.random.rand(c * h * w)
     final = np.insert(rand, 0, [3, c, h, w])
     f.write(",".join(final.astype(str)))
+    f.write("\n")
 
 f.close()
     

@@ -12,6 +12,7 @@ from math import ceil
 from queue import Queue, PriorityQueue
 from keras.preprocessing.image import load_img, img_to_array
 from tensorflow.keras.applications.resnet50 import ResNet50
+from tensorflow.keras.applications.imagenet_utils import preprocess_input, decode_predictions
 
 
 BUFFER_SIZE = 4096
@@ -270,7 +271,8 @@ class FServer(server.Node):
             t = threading.Thread(target=self.handle_execute, args=(conn,))
             t.start()
         elif command == 'finishedBatch':
-            self.reassign()
+            t = threading.Thread(target=self.handle_finished, args=(conn,))
+            t.start()
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -513,7 +515,24 @@ class FServer(server.Node):
                         dims.append(line[i])
                         
                     data = np.array(line[dim_ct+1:], ).astype(np.float64)
+                    for i in data:
+                        x = preprocess_input(i)
+                        preds = model.predict(x)
+                        print('Predicted:', decode_predictions(preds, top=3)[0])
                     print(dims, len(data))
+        
+        cmd = ["finishedBatch", self.host]
+        conn.send(cmd[0].encode())
+        conn.recv(1)
+        conn.send(json.dumps(cmd).encode())
+
+    def handle_finished(self, conn: socket.socket):
+        conn.send(b'1')
+        _, finished_ip = json.loads(conn.recv(BUFFER_SIZE).decode())
+        with self.batches_lock:
+            if finished_ip in self.running_batches:
+                self.running_batches.pop(finished_ip)
+        self.reassign()
 
     def reassign(self):
         with self.members_lock:
@@ -572,7 +591,6 @@ class FServer(server.Node):
                 num_queries = job.get("num-queries", 1)
                 input_source = job.get("input-source", None)
                 model_name = job.get("model", None)
-                # self.put(input_source, f"internal-{input_source}")
 
                 num_batches = ceil(num_queries/batch_size)
 
