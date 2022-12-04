@@ -237,19 +237,20 @@ class FServer(server.Node):
                 t = threading.Thread(target=self.requestHandleThread, args=(conn, ))
                 t.start()
 
-    def inferenceBackground(self):
-        print("in backgroun!", self.host)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind((self.host, INFERENCE_PORT))
-            s.listen()
-            while True:
-                conn, addr = s.accept()
-                t = threading.Thread(target=self.inferenceHandleThread, args=(conn, ))
-                t.start()
+    # def inferenceBackground(self):
+    #     print("in backgroun!", self.host)
+    #     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    #         s.bind((self.host, INFERENCE_PORT))
+    #         s.listen()
+    #         while True:
+    #             conn, addr = s.accept()
+    #             t = threading.Thread(target=self.inferenceHandleThread, args=(conn, ))
+    #             t.start()
  
 
     def requestHandleThread(self, conn: socket.socket):
         command = conn.recv(BUFFER_SIZE).decode()
+        print("command", command)
         if command == 'put':
             t = threading.Thread(target=self.handle_put_request, args=(conn,))
             t.start()
@@ -271,31 +272,33 @@ class FServer(server.Node):
         elif command == 'multiget':
             t = threading.Thread(target=self.handle_multiple_get_request, args=(conn,))
             t.start()
+        elif command == 'executeBatch':
+            print("in execute!")
 
-    def inferenceHandleThread(self, conn:socket.socket):
-        decoded_command = json.loads(conn.recv(BUFFER_SIZE).decode())
-        command = decoded_command[0]
+    # def inferenceHandleThread(self, conn:socket.socket):
+    #     decoded_command = json.loads(conn.recv(BUFFER_SIZE).decode())
+    #     command = decoded_command[0]
 
-        print("received", command)
-        if command == "changeLeader":
-            with self.leader_lock:
-                self.master_ip = command[1]
-        elif command == "executeBatch":
-            # TODO: execute batch
-            conn.sendall(["finishedJob"], (self.master_ip, INFERENCE_PORT))
-            # WORKER COMMAND
-            pass
-        elif command == "finishedBatch":
-            with self.batches_lock:
-                sender = decoded_command[1]
-                self.running_batches.pop(sender)
-        elif command == "finishedJob":
-            with self.finished_lock:
-                self.finished = True
+    #     print("received", command)
+    #     if command == "changeLeader":
+    #         with self.leader_lock:
+    #             self.master_ip = command[1]
+    #     elif command == "executeBatch":
+    #         # TODO: execute batch
+    #         conn.sendall(["finishedJob"], (self.master_ip, INFERENCE_PORT))
+    #         # WORKER COMMAND
+    #         pass
+    #     elif command == "finishedBatch":
+    #         with self.batches_lock:
+    #             sender = decoded_command[1]
+    #             self.running_batches.pop(sender)
+    #     elif command == "finishedJob":
+    #         with self.finished_lock:
+    #             self.finished = True
 
-        with self.leader_lock:
-            if self.host == self.master_ip:
-                self.reassign()
+    #     with self.leader_lock:
+    #         if self.host == self.master_ip:
+    #             self.reassign()
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -397,6 +400,17 @@ class FServer(server.Node):
         send_file(conn, sdfsfilename, sdfsfileid, timestamp)
 
         return
+
+    def handle_send(self, command, ip):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.connect((ip, self.file_port))
+            except socket.error as e:
+                return
+            s.send(bytes(command[0]))
+            s.recv(1)  # for ack
+            s.send(command.encode())
+        
 
     def handle_delete(self, sdfsfileid, ip):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -521,7 +535,7 @@ class FServer(server.Node):
 
                         indices = self.batch_queue.get()
                         self.running_batches[host] = indices
-                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                             cmd = ["executeBatch", indices]
                             s.sendto( json.dumps(cmd).encode(), (host, INFERENCE_PORT))
                             print("sending", cmd, "to: ", host, INFERENCE_PORT)
@@ -567,7 +581,6 @@ class FServer(server.Node):
                     while not self.finished:
                         time.sleep(1)
         print("finished!")
-
 
     def put(self, localfilepath, sdfsfileid):
         ips = self.get_ip(sdfsfileid)
