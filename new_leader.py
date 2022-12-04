@@ -237,6 +237,16 @@ class FServer(server.Node):
                 t = threading.Thread(target=self.requestHandleThread, args=(conn, ))
                 t.start()
 
+    def inferenceBackground(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((self.host, INFERENCE_PORT))
+            s.listen()
+            while True:
+                conn, addr = s.accept()
+                t = threading.Thread(target=self.requestHandleThread, args=(conn, ))
+                t.start()
+ 
+
     def requestHandleThread(self, conn: socket.socket):
         command = conn.recv(BUFFER_SIZE).decode()
         if command == 'put':
@@ -517,7 +527,7 @@ class FServer(server.Node):
                         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                             cmd = ["executeBatch", indices]
                             s.sendto( json.dumps(cmd).encode(), (host, INFERENCE_PORT))
-                            print("sending to: ", host)
+                            print("sending to: ", host, INFERENCE_PORT)
 
     def handle_inference(self, config):
         print("in handler!")
@@ -619,6 +629,7 @@ class FServer(server.Node):
         self.join()
         t1 = threading.Thread(target=self.fileServerBackground)
         t1.start()
+
 
         while True:
             command = input('>')
