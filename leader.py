@@ -1,5 +1,7 @@
+from math import ceil
 import server
 from server import encode_command, decode_command, encode_ping_ack, decode_ping_ack
+from queue import Queue, PriorityQueue
 import threading
 import socket
 import os
@@ -192,6 +194,9 @@ class FLeader(server.Node):
         self.master_lock = threading.Lock()
         self.hotstandby_lock = threading.Lock()
 
+        self.job_queue = PriorityQueue()
+        self.batch_queue = Queue()
+
      
     # batches = [[model, [batch]]]
     # jobs = mqp<model, [[batch]]>
@@ -285,21 +290,28 @@ class FLeader(server.Node):
     # Add each <node, batch> pair into work_in_progress map and delete it from the batches queue
     def assign_batches(self):
         self.membership_lock.acquire()
+        for member in (set(self.workInProgress.keys).intersection(self.membership_list.keys)):
+            print("failed node detected! clearing leftover work")
+            self.batch_queue.put(self.workInProgress[member])
+            self.workInProgress.pop(member)
+
         for member in self.membership_list:
             # if node is already being used to run another batch, don't assign it a batch
-            if member not in self.workInProgress.keys():
-                if(len(self.batches) != 0):
+            if member not in self.workInProgress:
+                if not self.batch_queue.empty():
                     host = member.split(':')[0]
                     # if node is the master, don't assign it a batch
-                    if host == self.master_ip:
+                    if host == self.master_ip or host == self.hotstandby_ip:
                         continue
-                    self.workInProgress[host] = self.batches[0]
-                    self.batches.pop(0)
+                    # self.workInProgress[host] = self.batches[0]
+                    # self.batches.pop(0)
+                    indices = self.batch_queue.get()
+                    self.workInProgress[host] = indices
                     # print("MYHOST: ", self.host, "actual", socket.gethostbyname(self.host))
                     # print("ASSIGN_batches", member)
                     # print("WIP: ", self.workInProgress)
                     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                        s.sendto(json.dumps({'command_type': 'executeBatch', 'command_content': [self.workInProgress[host]]}).encode(), (host, self.jobs_port)) # change port??
+                        s.sendto(json.dumps({'command_type': 'executeBatch', 'command_content': [indices]}).encode(), (host, self.jobs_port))
         self.membership_lock.release()
 
 
@@ -331,7 +343,6 @@ class FLeader(server.Node):
         self.batches = batches_
         self.jobs = jobs_
 
-
     def backgroundJobs(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.bind((self.host, self.jobs_port))
@@ -361,8 +372,6 @@ class FLeader(server.Node):
                     if command_type == 'updateHotstandby':
                         workInProgress_, batches_, jobs_ = decoded_command['command_content']
                         self.update_hotstandby(workInProgress_, batches_, jobs_)
-                    
-
 
     def get_ip(self, sdfsfileid):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -426,7 +435,6 @@ class FLeader(server.Node):
         elif command == 'multiget':
             t = threading.Thread(target=self.handle_multiple_get_request, args=(conn,))
             t.start()
-
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -623,6 +631,60 @@ class FLeader(server.Node):
         conn.send(header_bytes)
         conn.send(data)
 
+    def handle_run(self, config, valid):
+        if not valid:
+            exit()
+        
+        with open(config, "r") as f:
+            jobs = json.loads(f.read())["data"]
+            for job in jobs:
+                name = job["name"]
+                enabled = job["enabled"]
+                priority = job.get("priority", 1000)
+                batch_size = job.get("batch-size", 1)
+                num_queries = job.get("num-queries", 1)
+                input_source = job.get("input-source", None)
+
+                if not enabled or not input_source or num_queries == 0 or batch_size == 0:
+                    continue
+
+                self.job_queue.put((priority, name, job))
+                self.put(input_source, f"internal-{input_source}")
+
+            while not self.job_queue.empty():
+                priority, name, job = self.job_queue.get()
+
+                batch_size = job.get("batch-size", 1)
+                num_queries = job.get("num-queries", 1)
+                input_source = job.get("input-source", None)
+
+                num_batches = ceil(num_queries/batch_size)
+
+                self.batch_queue = [(start * batch_size, min((start + 1) * batch_size, num_queries))for start in range(num_batches)]
+                print("batch queue: ", self.batch_queue)
+                self.assign_batches()
+                
+    def put(self, localfilepath, sdfsfileid):
+        ips = self.get_ip(sdfsfileid)
+        if not ips:
+            index = self.filehash(sdfsfileid)
+            ips = self.getAllReplicas(index)
+        timestamp = time.time()
+        for ip in ips:
+            t = threading.Thread(target=self.handle_put, args = (localfilepath, sdfsfileid, ip, timestamp))
+            t.start()
+        i = 0
+        command_id = sdfsfileid + '-' + str(timestamp)
+        while i < 100:
+            self.put_lock.acquire()
+            self.put_ack_cache.setdefault(command_id, 0)
+            cnt = self.put_ack_cache[command_id]
+            self.put_lock.release()
+            if cnt >= 3:
+                break
+            time.sleep(2)
+            i += 1
+
     def run(self):
         self.join()
         t1 = threading.Thread(target=self.fileServerBackground)
@@ -637,25 +699,7 @@ class FLeader(server.Node):
             start_time = time.time()
             if parsed_command[0] == 'put':
                 localfilepath, sdfsfileid = parsed_command[1], parsed_command[2]
-                ips = self.get_ip(sdfsfileid)
-                if not ips:
-                    index = self.filehash(sdfsfileid)
-                    ips = self.getAllReplicas(index)
-                timestamp = time.time()
-                for ip in ips:
-                    t = threading.Thread(target=self.handle_put, args = (localfilepath, sdfsfileid, ip, timestamp))
-                    t.start()
-                i = 0
-                command_id = sdfsfileid + '-' + str(timestamp)
-                while i < 100:
-                    self.put_lock.acquire()
-                    self.put_ack_cache.setdefault(command_id, 0)
-                    cnt = self.put_ack_cache[command_id]
-                    self.put_lock.release()
-                    if cnt >= 3:
-                        break
-                    time.sleep(2)
-                    i += 1
+                self.put(localfilepath, sdfsfileid)
                 print('put complete.')
             elif parsed_command[0] == 'get':
                 sdfsfileid, localfilepath = parsed_command[1], parsed_command[2]
@@ -723,6 +767,12 @@ class FLeader(server.Node):
                     with open(localfilepath, 'wb') as f:
                         f.write(data)
                     print('get complete.')
+            elif parsed_command[0] == "job":
+
+                config = parsed_command[1]
+                t = threading.Thread(target=self.handle_run, args = (config, 1))
+                t.start()
+                print("preprocessing!")
 
             elif command == 'leave':
                 # create command id
@@ -742,8 +792,6 @@ class FLeader(server.Node):
                 self.log_generate(command_id[:-2], 'leave', self.membership_list)
                 print('Leaving...')
                 break
-
-
             elif command == 'list_mem':
                 print('isIntroducer: ', self.isIntroducer)
                 self.membership_lock.acquire()
@@ -773,15 +821,6 @@ class FLeader(server.Node):
                 self.bytes = 0
                 self.start_time = time.time()
                 self.bytes_lock.release()
-            elif parsed_command[0] == "job":
-                model = parsed_command[1]
-                batch = []
-                for i in range(2, len(parsed_command)):
-                    batch.append(parsed_command[i])
-                # assign batches as soon as command is run
-                self.update_leader_jobs(model, batch)
-                self.assign_batches()
-
             else:
                 print('command not found!')
             end_time = time.time()
