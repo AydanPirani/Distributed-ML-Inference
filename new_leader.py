@@ -516,7 +516,7 @@ class FServer(server.Node):
                     
 
                     data = np.array(line[dim_ct+1:], ).astype(np.float64)
-                    data = np.reshape(data, tuple(map(lambda x: int(float(x)//1), dims)))
+                    data = np.reshape(data, tuple(dims))
                     print(data.shape)
                     for i in data:
                         x = preprocess_input(i)

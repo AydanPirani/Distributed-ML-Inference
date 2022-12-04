@@ -10,10 +10,13 @@ f = open("input1.dat", "w+")
 
 for i in range(num_images):
     print(i)
-    rand = np.random.rand(c * h * w)
+    rand = np.random.rand(c, h, w).flatten()
     final = np.insert(rand, 0, [3, c, h, w])
     f.write(",".join(final.astype(str)))
     f.write("\n")
+    print(final.shape)
+
+    print(final[0:6])
 
 f.close()
     
