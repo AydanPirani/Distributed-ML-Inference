@@ -12,7 +12,7 @@ import numpy as np
 from math import ceil
 from queue import Queue, PriorityQueue
 from keras.preprocessing.image import image, load_img, img_to_array
-from tensorflow.keras.applications.resnet50 import ResNet50
+from tensorflow.keras.applications.resnet50 import ResNet50, MobileNet
 from tensorflow.keras.applications.imagenet_utils import preprocess_input, decode_predictions
 
 
@@ -206,6 +206,8 @@ class FServer(server.Node):
 
         self.finished = False
         self.seen_jobs = set()
+
+        self.conf = ""
         
 
     def get_ip(self, sdfsfileid):
@@ -512,6 +514,8 @@ class FServer(server.Node):
                 # TODO: initialize models
                 if model_name == 'resnet':
                     self.models[model_name] = ResNet50(weights='imagenet')
+                elif model_name == 'mobilenet':
+                    self.models[model_name] = MobileNet(weights='imagenet')
 
             model = self.models[model_name]
             predictions = []
@@ -586,7 +590,7 @@ class FServer(server.Node):
             jobs = json.loads(f.read())["data"]
 
             if self.host != STANDBY_HOST:
-                t = threading.Thread(target=self.handle_send, args = (["beginningInference", json.dumps(jobs)], STANDBY_HOST))
+                t = threading.Thread(target=self.handle_send, args = (["beginningInference", config], STANDBY_HOST))
                 t.start()
 
             for job in jobs:
@@ -637,28 +641,12 @@ class FServer(server.Node):
                     with self.finished_lock:
                         finished = self.finished
 
-                    
         print("finished!")
 
     def handle_beginning(self, conn:socket.socket):
         conn.send(b'1')
         decoded_command = conn.recv(BUFFER_SIZE).decode()
-
-        jobs = json.loads(decoded_command[1])
-        print("jobs:", jobs)
-        for job in jobs:
-            name = job["name"]
-            enabled = job["enabled"]
-            priority = job.get("priority", 1000)
-            batch_size = job.get("batch-size", 1)
-            num_queries = job.get("num-queries", 1)
-            model_name = job.get("model", None)
-            input_source = job.get("input-source", None)
-
-            if not enabled or not input_source or not model_name or num_queries == 0 or batch_size == 0 or name in self.seen_jobs:
-                continue
-
-            self.job_queue.put((priority, name, job))
+        self.conf = decoded_command[1]
 
     def put(self, localfilepath, sdfsfileid):
         ips = self.get_ip(sdfsfileid)
@@ -723,10 +711,12 @@ class FServer(server.Node):
         while True:
             with self.members_lock:
                 if MASTER_HOST not in set(map(lambda x: x.split(":")[0], self.membership_list)):
+                    print("MASTER FAILED!")
                     self.multicast_leader()
                     MASTER_HOST = self.host
+                    t = threading.Thread(target=self.handle_inference, args=(self.conf,))
                     break
-            time.sleep(3)
+            time.sleep(1)
         return
 
     def run(self):
