@@ -290,9 +290,14 @@ class FLeader(server.Node):
     # Add each <node, batch> pair into work_in_progress map and delete it from the batches queue
     def assign_batches(self):
         self.membership_lock.acquire()
+        for member in (set(self.workInProgress.keys).intersection(self.membership_list.keys)):
+            print("failed node detected! clearing leftover work")
+            self.batch_queue.put(self.workInProgress[member])
+            self.workInProgress.pop(member)
+
         for member in self.membership_list:
             # if node is already being used to run another batch, don't assign it a batch
-            if member not in self.workInProgress.keys():
+            if member not in self.workInProgress:
                 if not self.batch_queue.empty():
                     host = member.split(':')[0]
                     # if node is the master, don't assign it a batch
@@ -659,7 +664,6 @@ class FLeader(server.Node):
                 print("batch queue: ", self.batch_queue)
                 self.assign_batches()
                 
-
     def put(self, localfilepath, sdfsfileid):
         ips = self.get_ip(sdfsfileid)
         if not ips:
