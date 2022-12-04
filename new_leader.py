@@ -591,8 +591,7 @@ class FServer(server.Node):
             jobs = json.loads(f.read())["data"]
 
             if self.host != STANDBY_HOST:
-                t = threading.Thread(target=self.handle_send, args = (["beginningInference", config], STANDBY_HOST))
-                t.start()
+                self.handle_send(["beginningInference", config], STANDBY_HOST)
 
             for job in jobs:
                 name = job["name"]
@@ -713,9 +712,10 @@ class FServer(server.Node):
             with self.members_lock:
                 if MASTER_HOST not in set(map(lambda x: x.split(":")[0], self.membership_list)):
                     print("MASTER FAILED!")
-                    self.multicast_leader()
+                    threading.Thread(target=self.multicast_leader()).start()
                     MASTER_HOST = self.host
                     t = threading.Thread(target=self.handle_inference, args=(self.conf,))
+                    t.start()
                     break
             time.sleep(1)
         return
