@@ -282,7 +282,8 @@ class FServer(server.Node):
         elif command == 'newLeader':
             conn.send(b'1')
             decoded_command = conn.recv(BUFFER_SIZE).decode()
-            MASTER_HOST = decode_command[1]
+            MASTER_HOST = decoded_command[1]
+            print("new leader:", MASTER_HOST)
         elif command == 'beginningInference':
             t = threading.Thread(target=self.handle_beginning, args=(conn,))
             t.start()
@@ -568,7 +569,7 @@ class FServer(server.Node):
                 for m in self.membership_list:
                     if m not in self.running_batches:
                         host = m.split(":")[0]
-                        if host == self.master_ip or host == self.hotstandby_ip:
+                        if host == self.master_ip or host == STANDBY_HOST:
                             continue
                         
                         if not self.batch_queue.empty():
@@ -580,11 +581,13 @@ class FServer(server.Node):
                                 finished = True
 
     def handle_inference(self, config):
+        print("in inference!")
         with open(config, "r") as f:
             jobs = json.loads(f.read())["data"]
 
             if self.host != STANDBY_HOST:
-                self.handle_send(["beginning", json.dumps(jobs)], STANDBY_HOST)
+                t = threading.Thread(target=self.handle_send, args = (["beginning", json.dumps(jobs)], STANDBY_HOST))
+                t.start()
 
             for job in jobs:
                 name = job["name"]
@@ -600,10 +603,12 @@ class FServer(server.Node):
 
                 self.job_queue.put((priority, name, job))
 
+            print("put em all!")
             while not self.job_queue.empty():
                 with self.finished_lock:
                     self.finished = False
                 priority, name, job = self.job_queue.get()
+                print(name)
                 if name in self.seen_jobs:
                     if self.job_queue.empty():
                         print("finished!")
