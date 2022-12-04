@@ -492,7 +492,10 @@ class FServer(server.Node):
             with open(f"{self.host}-{input_file}", mode) as o_f:
                 for _ in range(start-1):
                     i_f.readline()
+
+                print("finished offset!")
                 for _ in range(start, end, 1):
+                    print("in second loop!")
                     line = i_f.readline().strip().split(",")
                     dim_ct = line[0]
 
@@ -503,6 +506,7 @@ class FServer(server.Node):
                         
                     data = np.array(line[dim_ct+1:], )
                     print(dims, len(data))
+
                     
 
 
