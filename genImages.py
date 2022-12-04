@@ -5,23 +5,23 @@ from io import BytesIO
 from PIL import Image
 import urllib
 from numpy import asarray
+import numpy as np
 
 # import cv2 
 #pip install opencv-python
-
 
 url = "https://www.image-net.org/api/imagenet.attributes.obtain_synset_list"
 file = urllib. request. urlopen(url)
 count = 0
 classes = []
 for line in file:
-    if(count == 50):
+    if(count == 1):
         break
     decoded_line = line.decode("utf-8")
     classes.append(decoded_line.strip())
     count = count + 1
 print(classes)
-    
+        
 filenames = []
 for c in classes:
     x = urllib2.urlopen('https://image-net.org/data/winter21_whole/' + c + '.tar').read()
@@ -36,9 +36,12 @@ with open("input1.txt", 'w+', encoding='utf-8') as my_file:
     for f in filenames:
         image = Image.open("./images/pics.txt/"+f)
         resized = image.resize((224, 224))
-        resized.save(f)
+        # resized.save(f)
         data = asarray(resized)
-        my_file.write(",".join(map(str, data)))
+        data = np.reshape(data, (224, 224, 3))
+        flattened = data.flatten()
+        flattened = np.insert(flattened, 0, [3, 224,224,3])
+        my_file.write(",".join(flattened.astype(str)))
         my_file.write("\n")
         # print("done")
 # f.close()

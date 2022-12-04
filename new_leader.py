@@ -18,6 +18,7 @@ from tensorflow.keras.applications.imagenet_utils import preprocess_input, decod
 
 BUFFER_SIZE = 4096
 MASTER_HOST = INTRODUCER_HOST = socket.gethostbyname('fa22-cs425-3601.cs.illinois.edu')
+STANDBY_HOST = socket.gethostbyname('fa22-cs425-3602.cs.illinois.edu')
 MACHINE_NUM = int(socket.gethostname()[13:15])
 LOG_FILEPATH = f'machine.{MACHINE_NUM}.log'
 PING_PORT = 20240
@@ -552,8 +553,7 @@ class FServer(server.Node):
                 for m in self.membership_list:
                     if m not in self.running_batches:
                         host = m.split(":")[0]
-                        # if host == self.master_ip or host == self.hotstandby_ip:
-                        if host == self.master_ip:
+                        if host == self.master_ip or host == self.hotstandby_ip:
                             continue
                         
                         if not self.batch_queue.empty():
@@ -662,13 +662,31 @@ class FServer(server.Node):
                 f.write(data)
             print('get complete.')
 
+    def multicast_leader(self):
+        with self.members_lock:
+            for member in self.membership_list:
+                host = member.split(":")[0]
+                t = threading.Thread(target=self.handle_send, args=(["newLeader", self.host],))
+                t.start()
+
+    def check_leader(self):
+        while True:
+            with self.members_lock:
+                if MASTER_HOST not in set(map(lambda x: x.split(":")[0], self.membership_list.keys)):
+                    print("leader failed!")
+                    self.multicast_leader()
+                    return
+            time.sleep(3)
+        return
+
     def run(self):
         self.join()
         t1 = threading.Thread(target=self.fileServerBackground)
         t1.start()
 
-        # t2 = threading.Thread(target=self.inferenceBackground)
-        # t2.start()
+        if self.host == STANDBY_HOST:
+            t2 = threading.Thread(target=self.check_leader)
+            t2.start()
 
         while True:
             command = input('>')
