@@ -273,29 +273,29 @@ class FServer(server.Node):
             t.start()
 
     def inferenceHandleThread(self, conn:socket.socket):
-            decoded_command = json.loads(conn.recv(BUFFER_SIZE).decode())
-            command = decoded_command[0]
+        decoded_command = json.loads(conn.recv(BUFFER_SIZE).decode())
+        command = decoded_command[0]
 
-            print("received", command)
-            if command == "changeLeader":
-                with self.leader_lock:
-                    self.master_ip = command[1]
-            elif command == "executeBatch":
-                # TODO: execute batch
-                conn.sendall(["finishedJob"], (self.master_ip, INFERENCE_PORT))
-                # WORKER COMMAND
-                pass
-            elif command == "finishedBatch":
-                with self.batches_lock:
-                    sender = decoded_command[1]
-                    self.running_batches.pop(sender)
-            elif command == "finishedJob":
-                with self.finished_lock:
-                    self.finished = True
-
+        print("received", command)
+        if command == "changeLeader":
             with self.leader_lock:
-                if self.host == self.master_ip:
-                    self.reassign()
+                self.master_ip = command[1]
+        elif command == "executeBatch":
+            # TODO: execute batch
+            conn.sendall(["finishedJob"], (self.master_ip, INFERENCE_PORT))
+            # WORKER COMMAND
+            pass
+        elif command == "finishedBatch":
+            with self.batches_lock:
+                sender = decoded_command[1]
+                self.running_batches.pop(sender)
+        elif command == "finishedJob":
+            with self.finished_lock:
+                self.finished = True
+
+        with self.leader_lock:
+            if self.host == self.master_ip:
+                self.reassign()
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -524,7 +524,7 @@ class FServer(server.Node):
                         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                             cmd = ["executeBatch", indices]
                             s.sendto( json.dumps(cmd).encode(), (host, INFERENCE_PORT))
-                            print("sending to: ", host, INFERENCE_PORT)
+                            print("sending", cmd, "to: ", host, INFERENCE_PORT)
 
     def handle_inference(self, config):
         print("in handler!")
