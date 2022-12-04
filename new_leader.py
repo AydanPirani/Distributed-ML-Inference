@@ -586,7 +586,7 @@ class FServer(server.Node):
             jobs = json.loads(f.read())["data"]
 
             if self.host != STANDBY_HOST:
-                t = threading.Thread(target=self.handle_send, args = (["beginning", json.dumps(jobs)], STANDBY_HOST))
+                t = threading.Thread(target=self.handle_send, args = (["beginningInference", json.dumps(jobs)], STANDBY_HOST))
                 t.start()
 
             for job in jobs:
