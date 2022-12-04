@@ -238,12 +238,13 @@ class FServer(server.Node):
                 t.start()
 
     def inferenceBackground(self):
+        print("in backgroun!")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self.host, INFERENCE_PORT))
             s.listen()
             while True:
                 conn, addr = s.accept()
-                t = threading.Thread(target=self.requestHandleThread, args=(conn, ))
+                t = threading.Thread(target=self.inferenceHandleThread, args=(conn, ))
                 t.start()
  
 
@@ -272,6 +273,7 @@ class FServer(server.Node):
             t.start()
 
     def inferenceHandleThread(self):
+        print("in handler!")
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.bind((self.host, INFERENCE_PORT))
             while True:
@@ -630,6 +632,8 @@ class FServer(server.Node):
         t1 = threading.Thread(target=self.fileServerBackground)
         t1.start()
 
+        t2 = threading.Thread(target=self.inferenceBackground)
+        t2.start()
 
         while True:
             command = input('>')
