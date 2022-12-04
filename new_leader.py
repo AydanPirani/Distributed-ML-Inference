@@ -7,11 +7,11 @@ import time
 import struct
 import json
 
-import resnet
 import numpy as np
 from math import ceil
 from queue import Queue, PriorityQueue
 from keras.preprocessing.image import load_img, img_to_array
+from tensorflow.keras.applications.resnet50 import ResNet50
 
 
 BUFFER_SIZE = 4096
@@ -485,7 +485,7 @@ class FServer(server.Node):
             if model_name not in self.models:
                 # TODO: initialize models
                 if model_name == 'resnet':
-                    self.models[model_name] = resnet.ResNet50(weights='imagenet')
+                    self.models[model_name] = ResNet50(weights='imagenet')
 
             model = self.models[model_name]
 
