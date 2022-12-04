@@ -1,3 +1,4 @@
+from datetime import datetime
 import server
 from server import encode_command, decode_command, encode_ping_ack, decode_ping_ack
 import threading
@@ -194,6 +195,7 @@ class FServer(server.Node):
         self.batch_queue = Queue()
         self.running_batches = {}
         self.models = {}
+        self.total_batches = 0
 
         self.seen_lock = threading.Lock()
         self.leader_lock = threading.Lock()
@@ -499,12 +501,13 @@ class FServer(server.Node):
                     self.models[model_name] = ResNet50(weights='imagenet')
 
             model = self.models[model_name]
-
+            predictions = []
             with open(f"{self.host}-{input_file}", mode) as o_f:
                 for _ in range(start-1):
                     i_f.readline()
 
                 print("finished offset!")
+                start_time = datetime.now()
                 for _ in range(start, end, 1):
                     print("in second loop!")
                     line = i_f.readline().strip().split(",")
@@ -522,7 +525,7 @@ class FServer(server.Node):
                     print('Predicted:', decode_predictions(preds, top=3)[0])
                     print(dims, len(data))
         
-        cmd = ["finishedBatch", self.host]
+        cmd = ["finishedBatch", self.host, predictions, datetime.now() - start_time, end - start]
         # conn.send(cmd[0].encode())
         # print("post-send!")
         # conn.recv(1)
@@ -533,9 +536,10 @@ class FServer(server.Node):
 
     def handle_finished(self, conn: socket.socket):
         print("handling finished!")
-        conn.send(b'1')
-        _, finished_ip = json.loads(conn.recv(BUFFER_SIZE).decode())
+        _, finished_ip, predictions, time, query_size = json.loads(conn.recv(BUFFER_SIZE).decode())
         with self.batches_lock:
+            self.total_batches += 1
+            print(f"output from {finished_ip}:{'\n'.join(predictions)}\n average queries: {time/query_size}. total batches processed = {self.total_batches}")
             if finished_ip in self.running_batches:
                 self.running_batches.pop(finished_ip)
         self.reassign()
@@ -557,7 +561,7 @@ class FServer(server.Node):
                     self.running_batches.pop(i)
 
                 for m in self.membership_list:
-                    print(m, self.master_ip, self.running_batches)
+                    print("jobs per node:", self.running_batches)
                     if m not in self.running_batches:
                         host = m.split(":")[0]
                         # if host == self.master_ip or host == self.hotstandby_ip:
