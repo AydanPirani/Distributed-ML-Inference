@@ -7,8 +7,11 @@ import time
 import struct
 import json
 
+import resnet
+import numpy as np
 from math import ceil
 from queue import Queue, PriorityQueue
+from keras.preprocessing.image import load_img, img_to_array
 
 
 BUFFER_SIZE = 4096
@@ -22,7 +25,6 @@ PING_TIMEOUT = 2
 MASTER_PORT = 20086
 FILE_PORT = 10086
 GET_ADDR_PORT = 10087
-INFERENCE_PORT = MASTER_PORT + 1
 
 def send_file(conn: socket.socket, localfilepath, sdfsfileid, timestamp):
     header_dic = {
@@ -190,6 +192,7 @@ class FServer(server.Node):
         self.job_queue = PriorityQueue()
         self.batch_queue = Queue()
         self.running_batches = {}
+        self.models = {}
 
         self.leader_lock = threading.Lock()
         self.members_lock = threading.Lock()
@@ -263,8 +266,7 @@ class FServer(server.Node):
             t = threading.Thread(target=self.handle_multiple_get_request, args=(conn,))
             t.start()
         elif command == 'executeBatch':
-            self.handle_send()
-            print("in execute!")
+            t = threading.Thread(target=self.handle_execute, args=(conn,))
         elif command == 'finishedBatch':
             self.reassign()
 
@@ -375,8 +377,8 @@ class FServer(server.Node):
                 s.connect((ip, self.file_port))
             except socket.error as e:
                 return
-            # s.send(command[0].encode())
-            # s.recv(1)  # for ack
+            s.send(command[0].encode())
+            s.recv(1)  # for ack
             s.send(json.dumps(command).encode())
 
     def handle_delete(self, sdfsfileid, ip):
@@ -472,6 +474,38 @@ class FServer(server.Node):
         conn.send(struct.pack('i', len(header_bytes)))
         conn.send(header_bytes)
         conn.send(data)
+
+    def handle_execute(self, conn: socket.socket):
+        conn.send(b'1')
+        command, input_file, model_name, indices = json.loads(conn.recv(BUFFER_SIZE).decode())
+        start, end = indices
+
+        with open(input_file, "r") as i_f:
+            mode = "a"
+            if model_name not in self.models:
+                # TODO: initialize models
+                if model_name == 'resnet':
+                    self.models[model_name] = resnet.ResNet50(weights='imagenet')
+
+            model = self.models[model_name]
+
+            with open(f"{self.host}-{input_file}", mode) as o_f:
+                for _ in range(start-1):
+                    i_f.readline()
+                for _ in range(start, end, 1):
+                    line = i_f.readline().strip().split(",")
+                    dim_ct = line[0]
+
+                    dims = []
+
+                    for i in range(dim_ct):
+                        dims.append(line[i])
+                        
+                    data = np.array(line[dim_ct+1:], )
+                    print(dims, len(data))
+                    
+
+                    
 
     def reassign(self):
         print("in reassign, batches:", self.batch_queue)

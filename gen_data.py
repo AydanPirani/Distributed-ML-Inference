@@ -1,6 +1,6 @@
 import numpy as np
 
-num_images = 1000
+num_images = 5
 
 c = 3
 h = 224
