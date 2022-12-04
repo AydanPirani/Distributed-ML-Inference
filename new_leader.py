@@ -322,7 +322,6 @@ class FServer(server.Node):
 
     def handle_put(self, localfilepath, sdfsfileid, ip, timestamp):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            print('send to ', ip)
             try:
                 s.connect((ip, self.file_port))
             except socket.error as e:
@@ -620,7 +619,6 @@ class FServer(server.Node):
 
     def put(self, localfilepath, sdfsfileid):
         ips = self.get_ip(sdfsfileid)
-        print(ips)
         if not ips:
             index = self.filehash(sdfsfileid)
             ips = self.getAllReplicas(index)
