@@ -481,6 +481,7 @@ class FServer(server.Node):
         conn.send(data)
 
     def handle_execute(self, conn: socket.socket):
+        print(socket.hostname())
         conn.send(b'1')
         command, input_file, model_name, indices = json.loads(conn.recv(BUFFER_SIZE).decode())
         start, end = indices
@@ -512,22 +513,22 @@ class FServer(server.Node):
                     dims = []
 
                     for i in range(dim_ct):
-                        dims.append(line[1 + int(float(line[i])//1)])
+                        dims.append(int(float(line[i+1])//1))
                     
-
-                    data = np.array(line[dim_ct+1:], ).astype(np.float64)
+                    data = np.array(line[dim_ct+1:]).astype(np.float64)
                     data = np.reshape(data, tuple(dims))
-                    print(data.shape)
-                    for i in data:
-                        x = preprocess_input(i)
-                        preds = model.predict(x)
-                        print('Predicted:', decode_predictions(preds, top=3)[0])
+                    x = preprocess_input(np.array([data]))
+                    preds = model.predict(x)
+                    print('Predicted:', decode_predictions(preds, top=3)[0])
                     print(dims, len(data))
         
         cmd = ["finishedBatch", self.host]
         conn.send(cmd[0].encode())
+        print("post-send!")
         conn.recv(1)
+        print("received ack!")
         conn.send(json.dumps(cmd).encode())
+        print("sent eveything!")
 
     def handle_finished(self, conn: socket.socket):
         conn.send(b'1')
