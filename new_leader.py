@@ -10,7 +10,7 @@ import json
 import numpy as np
 from math import ceil
 from queue import Queue, PriorityQueue
-from keras.preprocessing.image import load_img, img_to_array
+from keras.preprocessing.image import img, load_img, img_to_array
 from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.applications.imagenet_utils import preprocess_input, decode_predictions
 
@@ -512,9 +512,11 @@ class FServer(server.Node):
                     dims = []
 
                     for i in range(dim_ct):
-                        dims.append(line[i])
+                        dims.append(int(float(line[i])//1))
                         
                     data = np.array(line[dim_ct+1:], ).astype(np.float64)
+                    data = np.reshape(data, tuple(dims))
+                    print(data.shape)
                     for i in data:
                         x = preprocess_input(i)
                         preds = model.predict(x)
