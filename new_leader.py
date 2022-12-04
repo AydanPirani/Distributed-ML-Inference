@@ -194,12 +194,14 @@ class FServer(server.Node):
         self.running_batches = {}
         self.models = {}
 
+        self.seen_lock = threading.Lock()
         self.leader_lock = threading.Lock()
         self.members_lock = threading.Lock()
         self.batches_lock = threading.Lock()
         self.finished_lock = threading.Lock()
 
         self.finished = False
+        self.seen_jobs = set()
 
     def get_ip(self, sdfsfileid):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -240,7 +242,6 @@ class FServer(server.Node):
                 t = threading.Thread(target=self.requestHandleThread, args=(conn, ))
                 t.start()
 
-
     def requestHandleThread(self, conn: socket.socket):
         command = conn.recv(BUFFER_SIZE).decode()
         print("command", command)
@@ -267,6 +268,7 @@ class FServer(server.Node):
             t.start()
         elif command == 'executeBatch':
             t = threading.Thread(target=self.handle_execute, args=(conn,))
+            t.start()
         elif command == 'finishedBatch':
             self.reassign()
 
@@ -377,6 +379,7 @@ class FServer(server.Node):
                 s.connect((ip, self.file_port))
             except socket.error as e:
                 return
+            print(f"sending {command}")
             s.send(command[0].encode())
             s.recv(1)  # for ack
             s.send(json.dumps(command).encode())
@@ -480,6 +483,11 @@ class FServer(server.Node):
         command, input_file, model_name, indices = json.loads(conn.recv(BUFFER_SIZE).decode())
         start, end = indices
 
+        with self.seen_lock:
+            if input_file not in self.seen_jobs:
+                self.get(input_file, f"internal-{input_file}")
+                self.seen_jobs.add(input_file)
+
         with open(input_file, "r") as i_f:
             mode = "a"
             if model_name not in self.models:
@@ -507,12 +515,7 @@ class FServer(server.Node):
                     data = np.array(line[dim_ct+1:], )
                     print(dims, len(data))
 
-                    
-
-
-
     def reassign(self):
-        print("in reassign, batches:", self.batch_queue)
         with self.members_lock:
             if len(self.membership_list) == 0:
                 print("no workers found! exiting")
@@ -536,10 +539,10 @@ class FServer(server.Node):
                         if host == self.master_ip:
                             continue
 
-                        indices = self.batch_queue.get()
+                        input_file, model_name, indices = self.batch_queue.get()
                         self.running_batches[host] = indices
                         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                            self.handle_send(["executeBatch", indices], host)
+                            self.handle_send(["executeBatch", input_file, model_name, indices], host)
 
     def handle_inference(self, config):
         print("in handler!")
@@ -551,9 +554,10 @@ class FServer(server.Node):
                 priority = job.get("priority", 1000)
                 batch_size = job.get("batch-size", 1)
                 num_queries = job.get("num-queries", 1)
+                model_name = job.get("model", None)
                 input_source = job.get("input-source", None)
 
-                if not enabled or not input_source or num_queries == 0 or batch_size == 0:
+                if not enabled or not input_source or not model_name or num_queries == 0 or batch_size == 0:
                     continue
 
                 self.job_queue.put((priority, name, job))
@@ -567,6 +571,8 @@ class FServer(server.Node):
                 batch_size = job.get("batch-size", 1)
                 num_queries = job.get("num-queries", 1)
                 input_source = job.get("input-source", None)
+                model_name = job.get("model", None)
+                self.put(input_source, f"internal-{input_source}")
 
                 num_batches = ceil(num_queries/batch_size)
 
@@ -574,7 +580,7 @@ class FServer(server.Node):
 
                     for start in range(num_batches):
                         idx = (start * batch_size, min((start + 1) * batch_size, num_queries))
-                        self.batch_queue.put(idx)
+                        self.batch_queue.put((input_source, model_name, idx))
 
                 self.reassign()
 
@@ -634,7 +640,6 @@ class FServer(server.Node):
             with open(localfilepath, 'wb') as f:
                 f.write(data)
             print('get complete.')
-
 
     def run(self):
         self.join()
