@@ -7,6 +7,9 @@ import time
 import struct
 import json
 
+from math import ceil
+from queue import Queue, PriorityQueue
+
 
 BUFFER_SIZE = 4096
 MASTER_HOST = INTRODUCER_HOST = socket.gethostbyname('fa22-cs425-3601.cs.illinois.edu')
@@ -19,6 +22,7 @@ PING_TIMEOUT = 2
 MASTER_PORT = 20086
 FILE_PORT = 10086
 GET_ADDR_PORT = 10087
+INFERENCE_PORT = MASTER_PORT + 1
 
 def send_file(conn: socket.socket, localfilepath, sdfsfileid, timestamp):
     header_dic = {
@@ -183,6 +187,14 @@ class FServer(server.Node):
         self.master_port = master_port
         self.master_ip = socket.gethostbyname(master_host)
 
+        self.job_queue = PriorityQueue()
+        self.batch_queue = Queue()
+        self.running_batches = {}
+
+        self.leader_lock = threading.Lock()
+        self.members_lock = threading.Lock()
+        self.batches_lock = threading.Lock()
+
     def get_ip(self, sdfsfileid):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
@@ -245,6 +257,30 @@ class FServer(server.Node):
         elif command == 'multiget':
             t = threading.Thread(target=self.handle_multiple_get_request, args=(conn,))
             t.start()
+
+    def inferenceHandleThread(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.bind((self.host, INFERENCE_PORT))
+            while True:
+                encoded_command, addr = s.recvfrom(4096)
+                decoded_command = json.loads(encoded_command.decode())
+                command = decoded_command[0]
+
+                if command == "changeLeader":
+                    with self.leader_lock:
+                        self.master_ip = command[1]
+                elif command == "executeBatch":
+                    # TODO: execute batch
+                    # WORKER COMMAND
+                    pass
+                elif command == "finishedBatch":
+                    with self.batches_lock:
+                        sender = decoded_command[1]
+                        self.running_batches.pop(sender)
+                with self.leader_lock:
+                    if self.host == self.master_ip:
+                        self.reassign()
+
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -441,6 +477,71 @@ class FServer(server.Node):
         conn.send(header_bytes)
         conn.send(data)
 
+    def reassign(self):
+        print("in reassign!")
+        with self.members_lock:
+            if len(self.membership_list) == 0:
+                print("no workers found! exiting")
+                exit(1)
+
+            failed = set()
+            with self.batches_lock:
+                working_nodes = set(self.running_batches.keys())
+                alive_nodes = set(map(lambda x: x.split(":")[0], self.membership_list))
+                failed = working_nodes - alive_nodes
+
+                for i in failed:
+                    self.batch_queue.put(self.running_batches[i])
+                    self.running_batches.pop(i)
+
+                print("here!")
+                for m in self.membership_list:
+                    print(m, self.master_ip, self.running_batches)
+                    if m not in self.running_batches:
+                        host = m.split(":")[0]
+                        # if host == self.master_ip or host == self.hotstandby_ip:
+                        if host == self.master_ip:
+                            continue
+                        print("in here!")
+
+                        indices = self.batch_queue.get()
+                        self.running_batches[host] = indices
+                        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                            cmd = ["executeBatch", indices]
+                            s.sendto( json.dumps(cmd).encode(), (host, INFERENCE_PORT))
+                            print("sending to: ", host)
+
+
+    def handle_inference(self, config):
+        print("in handler!")
+        with open(config, "r") as f:
+            jobs = json.loads(f.read())["data"]
+            for job in jobs:
+                name = job["name"]
+                enabled = job["enabled"]
+                priority = job.get("priority", 1000)
+                batch_size = job.get("batch-size", 1)
+                num_queries = job.get("num-queries", 1)
+                input_source = job.get("input-source", None)
+
+                if not enabled or not input_source or num_queries == 0 or batch_size == 0:
+                    continue
+
+                self.job_queue.put((priority, name, job))
+
+            while not self.job_queue.empty():
+                priority, name, job = self.job_queue.get()
+
+                batch_size = job.get("batch-size", 1)
+                num_queries = job.get("num-queries", 1)
+                input_source = job.get("input-source", None)
+
+                num_batches = ceil(num_queries/batch_size)
+
+                self.batch_queue = [(start * batch_size, min((start + 1) * batch_size, num_queries))for start in range(num_batches)]
+                print("batch queue: ", self.batch_queue)
+                self.reassign()
+
     def put(self, localfilepath, sdfsfileid):
         ips = self.get_ip(sdfsfileid)
         print(ips)
@@ -459,10 +560,40 @@ class FServer(server.Node):
             self.put_ack_cache.setdefault(command_id, 0)
             cnt = self.put_ack_cache[command_id]
             self.put_lock.release()
+            if cnt >= min(3, len(ips)):
+                break
+            time.sleep(2)
+            i += 1
+        print("done")
+        return
+
+    def get(self, localfilepath, sdfsfileid):
+        ips = self.get_ip(sdfsfileid)
+        print(len(ips))
+        for ip in ips:
+            t = threading.Thread(target=self.handle_get, args=(sdfsfileid, ip))
+            t.start()
+        i = 0
+
+        while i < 10:
+            self.get_lock.acquire()
+            self.get_ack_cache.setdefault(sdfsfileid, 0)
+            cnt = self.get_ack_cache[sdfsfileid]
+            self.get_lock.release()
             if cnt >= 3:
                 break
             time.sleep(2)
             i += 1
+        if i == 10:
+            print('get failed.')
+        else:
+            self.file_lock.acquire()
+            data = self.file_cache[sdfsfileid][0]
+            self.file_lock.release()
+            with open(localfilepath, 'wb') as f:
+                f.write(data)
+            print('get complete.')
+
 
     def run(self):
         self.join()
@@ -478,31 +609,7 @@ class FServer(server.Node):
                 self.put(localfilepath, sdfsfileid)
             elif parsed_command[0] == 'get':
                 sdfsfileid, localfilepath = parsed_command[1], parsed_command[2]
-                ips = self.get_ip(sdfsfileid)
-                print(len(ips))
-                for ip in ips:
-                    t = threading.Thread(target=self.handle_get, args=(sdfsfileid, ip))
-                    t.start()
-                i = 0
-
-                while i < 10:
-                    self.get_lock.acquire()
-                    self.get_ack_cache.setdefault(sdfsfileid, 0)
-                    cnt = self.get_ack_cache[sdfsfileid]
-                    self.get_lock.release()
-                    if cnt >= 3:
-                        break
-                    time.sleep(2)
-                    i += 1
-                if i == 10:
-                    print('get failed.')
-                else:
-                    self.file_lock.acquire()
-                    data = self.file_cache[sdfsfileid][0]
-                    self.file_lock.release()
-                    with open(localfilepath, 'wb') as f:
-                        f.write(data)
-                    print('get complete.')
+                self.get(localfilepath, sdfsfileid)
             elif parsed_command[0] == 'delete':
                 sdfsfileid = parsed_command[1]
                 ips = self.get_ip(sdfsfileid)
@@ -542,8 +649,10 @@ class FServer(server.Node):
                     with open(localfilepath, 'wb') as f:
                         f.write(data)
                     print('get complete.')
-
-            # elif parsed_command[0] == 'inference':
+            elif parsed_command[0] == 'inference':
+                config = parsed_command[1]
+                t = threading.Thread(target=self.handle_inference, args=(config,))
+                t.start()
             
             elif command == 'leave':
                 # create command id

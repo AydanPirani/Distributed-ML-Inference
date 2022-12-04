@@ -400,6 +400,7 @@ class FLeader(server.Node):
             indexes.add((index + i) % l)
         self.membership_lock.acquire()
         res = [self.membership_list[i].split(':')[0] for i in indexes]
+        print(res)
         self.membership_lock.release()
         return res
 
@@ -486,6 +487,7 @@ class FLeader(server.Node):
                 s.connect((ip, self.file_port))
             except socket.error as e:
                 return
+            print("finished!")
             s.send(b'put')
             s.recv(1) # for ack
             send_file(s, localfilepath, sdfsfileid, timestamp)
@@ -666,9 +668,11 @@ class FLeader(server.Node):
                 
     def put(self, localfilepath, sdfsfileid):
         ips = self.get_ip(sdfsfileid)
+        print(ips)
         if not ips:
             index = self.filehash(sdfsfileid)
             ips = self.getAllReplicas(index)
+        print(ips)
         timestamp = time.time()
         for ip in ips:
             t = threading.Thread(target=self.handle_put, args = (localfilepath, sdfsfileid, ip, timestamp))
