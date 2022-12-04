@@ -521,7 +521,7 @@ class FServer(server.Node):
 
                         indices = self.batch_queue.get()
                         self.running_batches[host] = indices
-                        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                             cmd = ["executeBatch", indices]
                             s.sendto( json.dumps(cmd).encode(), (host, INFERENCE_PORT))
                             print("sending", cmd, "to: ", host, INFERENCE_PORT)
