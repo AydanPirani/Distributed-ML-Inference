@@ -272,7 +272,7 @@ class FServer(server.Node):
             t = threading.Thread(target=self.handle_multiple_get_request, args=(conn,))
             t.start()
 
-    def inferenceHandleThread(self):
+    def inferenceHandleThread(self, conn:socket.socket):
         print("in handler!")
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.bind((self.host, INFERENCE_PORT))
