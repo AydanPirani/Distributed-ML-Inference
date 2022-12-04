@@ -269,6 +269,8 @@ class Node:
         """
         member_id = type['member_id']
         self.ack_cache_lock.acquire()
+        if id not in self.ack_cache:
+            self.ack_cache[id] = set()
         self.ack_cache[id].add(member_id)
         self.ack_cache_lock.release()
 
