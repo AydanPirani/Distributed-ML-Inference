@@ -505,7 +505,7 @@ class FServer(server.Node):
                     print(dims, len(data))
                     
 
-                    
+
 
     def reassign(self):
         print("in reassign, batches:", self.batch_queue)
