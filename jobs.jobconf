@@ -12,9 +12,9 @@
 
          {
             "name": "job2",
+            "enabled": false,
             "priority": 999,
             "model": "resnet",
-            "enabled": true,
             "input-source": "input2.dat"
 	    } 
     ]

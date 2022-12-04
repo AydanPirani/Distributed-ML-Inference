@@ -572,7 +572,7 @@ class FServer(server.Node):
                 num_queries = job.get("num-queries", 1)
                 input_source = job.get("input-source", None)
                 model_name = job.get("model", None)
-                self.put(input_source, f"internal-{input_source}")
+                # self.put(input_source, f"internal-{input_source}")
 
                 num_batches = ceil(num_queries/batch_size)
 
@@ -627,7 +627,7 @@ class FServer(server.Node):
             self.get_ack_cache.setdefault(sdfsfileid, 0)
             cnt = self.get_ack_cache[sdfsfileid]
             self.get_lock.release()
-            if cnt >= 3:
+            if cnt >= min(3, len(ips)):
                 break
             time.sleep(2)
             i += 1
