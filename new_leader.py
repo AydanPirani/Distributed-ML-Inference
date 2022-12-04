@@ -519,9 +519,9 @@ class FServer(server.Node):
                     data = np.reshape(data, tuple(dims))
                     x = preprocess_input(np.array([data]))
                     preds = model.predict(x)
-                    predictions.append(decode_predictions(preds, top=3)[0])
+                    predictions.append(decode_predictions(preds, top=1)[0][0][1])
         
-        cmd = ["finishedBatch", self.host, predictions, (datetime.now() - start_time).total_seconds() * 1000, end - start]
+        cmd = ["finishedBatch", self.host, predictions, int((1000 * (datetime.now() - start_time).total_seconds())), end - start]
         self.handle_send(cmd, MASTER_HOST)
         print("finished with local batch!")
 
