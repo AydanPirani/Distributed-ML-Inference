@@ -194,6 +194,9 @@ class FServer(server.Node):
         self.leader_lock = threading.Lock()
         self.members_lock = threading.Lock()
         self.batches_lock = threading.Lock()
+        self.finished_lock = threading.Lock()
+
+        self.finished = False
 
     def get_ip(self, sdfsfileid):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -266,21 +269,26 @@ class FServer(server.Node):
                 decoded_command = json.loads(encoded_command.decode())
                 command = decoded_command[0]
 
+                print("received", command)
                 if command == "changeLeader":
                     with self.leader_lock:
                         self.master_ip = command[1]
                 elif command == "executeBatch":
                     # TODO: execute batch
+                    s.sendall(["finishedJob"], (self.master_ip, INFERENCE_PORT))
                     # WORKER COMMAND
                     pass
                 elif command == "finishedBatch":
                     with self.batches_lock:
                         sender = decoded_command[1]
                         self.running_batches.pop(sender)
+                elif command == "finishedJob":
+                    with self.finished_lock:
+                        self.finished = True
+
                 with self.leader_lock:
                     if self.host == self.master_ip:
                         self.reassign()
-
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -511,7 +519,6 @@ class FServer(server.Node):
                             s.sendto( json.dumps(cmd).encode(), (host, INFERENCE_PORT))
                             print("sending to: ", host)
 
-
     def handle_inference(self, config):
         print("in handler!")
         with open(config, "r") as f:
@@ -530,7 +537,10 @@ class FServer(server.Node):
                 self.job_queue.put((priority, name, job))
 
             while not self.job_queue.empty():
+                with self.finished_lock:
+                    self.finished = False
                 priority, name, job = self.job_queue.get()
+                print(f"running {job}")
 
                 batch_size = job.get("batch-size", 1)
                 num_queries = job.get("num-queries", 1)
@@ -538,9 +548,19 @@ class FServer(server.Node):
 
                 num_batches = ceil(num_queries/batch_size)
 
-                self.batch_queue = [(start * batch_size, min((start + 1) * batch_size, num_queries))for start in range(num_batches)]
-                print("batch queue: ", self.batch_queue)
+                with self.batches_lock:
+
+                    for start in range(num_batches):
+                        idx = (start * batch_size, min((start + 1) * batch_size, num_queries))
+                        self.batch_queue.put(idx)
+
                 self.reassign()
+
+                with self.finished_lock:
+                    while not self.finished:
+                        time.sleep(1)
+        print("finished!")
+
 
     def put(self, localfilepath, sdfsfileid):
         ips = self.get_ip(sdfsfileid)
