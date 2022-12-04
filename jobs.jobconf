@@ -1,0 +1,21 @@
+{
+	"data": [
+        
+        {
+            "name": "job1",
+            "model": "resnet",
+            "enabled": true,
+            "input-source": "input1.dat",
+            "batch-size": 3,
+            "num-queries": 5
+	    }, 
+
+         {
+            "name": "job2",
+            "priority": 999,
+            "model": "resnet",
+            "enabled": true,
+            "input-source": "input2.dat"
+	    } 
+    ]
+}
