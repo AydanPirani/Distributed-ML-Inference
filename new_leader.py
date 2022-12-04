@@ -237,16 +237,6 @@ class FServer(server.Node):
                 t = threading.Thread(target=self.requestHandleThread, args=(conn, ))
                 t.start()
 
-    # def inferenceBackground(self):
-    #     print("in backgroun!", self.host)
-    #     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    #         s.bind((self.host, INFERENCE_PORT))
-    #         s.listen()
-    #         while True:
-    #             conn, addr = s.accept()
-    #             t = threading.Thread(target=self.inferenceHandleThread, args=(conn, ))
-    #             t.start()
- 
 
     def requestHandleThread(self, conn: socket.socket):
         command = conn.recv(BUFFER_SIZE).decode()
@@ -274,31 +264,6 @@ class FServer(server.Node):
             t.start()
         elif command == 'executeBatch':
             print("in execute!")
-
-    # def inferenceHandleThread(self, conn:socket.socket):
-    #     decoded_command = json.loads(conn.recv(BUFFER_SIZE).decode())
-    #     command = decoded_command[0]
-
-    #     print("received", command)
-    #     if command == "changeLeader":
-    #         with self.leader_lock:
-    #             self.master_ip = command[1]
-    #     elif command == "executeBatch":
-    #         # TODO: execute batch
-    #         conn.sendall(["finishedJob"], (self.master_ip, INFERENCE_PORT))
-    #         # WORKER COMMAND
-    #         pass
-    #     elif command == "finishedBatch":
-    #         with self.batches_lock:
-    #             sender = decoded_command[1]
-    #             self.running_batches.pop(sender)
-    #     elif command == "finishedJob":
-    #         with self.finished_lock:
-    #             self.finished = True
-
-    #     with self.leader_lock:
-    #         if self.host == self.master_ip:
-    #             self.reassign()
 
     # check if the all the sent ips are in the replica set, if not, handle_replicate
     def handle_repair_request(self, conn: socket.socket):
@@ -407,10 +372,9 @@ class FServer(server.Node):
                 s.connect((ip, self.file_port))
             except socket.error as e:
                 return
-            s.send(bytes(command[0]))
-            s.recv(1)  # for ack
-            s.send(command.encode())
-        
+            # s.send(command[0].encode())
+            # s.recv(1)  # for ack
+            s.send(json.dumps(command).encode())
 
     def handle_delete(self, sdfsfileid, ip):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -507,7 +471,6 @@ class FServer(server.Node):
         conn.send(data)
 
     def reassign(self):
-        print("in reassign!")
         with self.members_lock:
             if len(self.membership_list) == 0:
                 print("no workers found! exiting")
@@ -523,7 +486,6 @@ class FServer(server.Node):
                     self.batch_queue.put(self.running_batches[i])
                     self.running_batches.pop(i)
 
-                print("here!")
                 for m in self.membership_list:
                     print(m, self.master_ip, self.running_batches)
                     if m not in self.running_batches:
@@ -536,9 +498,7 @@ class FServer(server.Node):
                         indices = self.batch_queue.get()
                         self.running_batches[host] = indices
                         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                            cmd = ["executeBatch", indices]
-                            s.sendto( json.dumps(cmd).encode(), (host, INFERENCE_PORT))
-                            print("sending", cmd, "to: ", host, INFERENCE_PORT)
+                            self.handle_send(["executeBatch", indices], host)
 
     def handle_inference(self, config):
         print("in handler!")
@@ -640,8 +600,8 @@ class FServer(server.Node):
         t1 = threading.Thread(target=self.fileServerBackground)
         t1.start()
 
-        t2 = threading.Thread(target=self.inferenceBackground)
-        t2.start()
+        # t2 = threading.Thread(target=self.inferenceBackground)
+        # t2.start()
 
         while True:
             command = input('>')
