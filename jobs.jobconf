@@ -6,8 +6,8 @@
             "model": "resnet",
             "enabled": true,
             "input-source": "input2.dat",
-            "batch-size": 3,
-            "num-queries": 6
+            "batch-size": 10,
+            "num-queries": 10
 	    }
     ]
 }

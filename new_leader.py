@@ -700,11 +700,10 @@ class FServer(server.Node):
             print('get complete.')
 
     def multicast_leader(self):
-        with self.members_lock:
-            for member in self.membership_list:
-                host = member.split(":")[0]
-                t = threading.Thread(target=self.handle_send, args=(["newLeader", self.host],host))
-                t.start()
+        for member in self.membership_list:
+            host = member.split(":")[0]
+            t = threading.Thread(target=self.handle_send, args=(["newLeader", self.host],host))
+            t.start()
 
     def check_leader(self):
         global MASTER_HOST
