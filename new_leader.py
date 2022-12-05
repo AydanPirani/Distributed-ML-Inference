@@ -712,7 +712,7 @@ class FServer(server.Node):
             with self.members_lock:
                 if MASTER_HOST not in set(map(lambda x: x.split(":")[0], self.membership_list)):
                     print("MASTER FAILED!")
-                    threading.Thread(target=self.multicast_leader()).start()
+                    threading.Thread(target=self.multicast_leader).start()
                     MASTER_HOST = self.host
                     t = threading.Thread(target=self.handle_inference, args=(self.conf,))
                     t.start()
