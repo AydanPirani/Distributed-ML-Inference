@@ -193,12 +193,16 @@ class FServer(server.Node):
         self.master_port = master_port
         self.master_ip = socket.gethostbyname(master_host)
 
+        # jobs priority queue([priority, batch])
         self.job_queue = PriorityQueue()
+        # batch_queue [(model, [batch])]
         self.batch_queue = Queue()
+        # running_batches map(node -> [batch])
         self.running_batches = {}
         self.models = {}
         self.total_batches = 0
 
+        # initialize locks
         self.seen_lock = threading.Lock()
         self.leader_lock = threading.Lock()
         self.members_lock = threading.Lock()
@@ -210,7 +214,7 @@ class FServer(server.Node):
 
         self.conf = ""
         
-
+    # retrieves ip
     def get_ip(self, sdfsfileid):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
@@ -274,22 +278,28 @@ class FServer(server.Node):
         elif command == 'multiget':
             t = threading.Thread(target=self.handle_multiple_get_request, args=(conn,))
             t.start()
+        # runs a batch by calling handle_execute
         elif command == 'executeBatch':
             t = threading.Thread(target=self.handle_execute, args=(conn,))
             t.start()
+        # when finishedBatch is called, call handle_finished to update structures
         elif command == 'finishedBatch':
             t = threading.Thread(target=self.handle_finished, args=(conn,))
             t.start()
+        # handle beginning of a job
         elif command == 'beginningJob':
             t = threading.Thread(target=self.handle_beginning, args=conn)
+        # assign the new leader 
         elif command == 'newLeader':
             conn.send(b'1')
             decoded_command = conn.recv(BUFFER_SIZE).decode()
             MASTER_HOST = decoded_command[1]
             print("new leader:", MASTER_HOST)
+        # handle the beginning of the inference
         elif command == 'beginningInference':
             t = threading.Thread(target=self.handle_beginning, args=(conn,))
             t.start()
+        # when a job is finished, add it to the jobs that are done
         elif command == 'finishedJob':
             conn.send(b'1')
             if not self.job_queue.empty:
@@ -387,6 +397,7 @@ class FServer(server.Node):
             self.get_ack_cache[sdfsfileid] += 1
             self.get_lock.release()
 
+    # Handles get request 
     def handle_get_request(self, conn: socket.socket):
         conn.send(b'1')
         sdfsfileid = conn.recv(BUFFER_SIZE).decode()
@@ -396,6 +407,7 @@ class FServer(server.Node):
 
         return
 
+    # handles send
     def handle_send(self, command, ip):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
@@ -406,6 +418,7 @@ class FServer(server.Node):
             s.recv(1)  # for ack
             s.send(json.dumps(command).encode())
 
+    # handles delete 
     def handle_delete(self, sdfsfileid, ip):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
@@ -416,6 +429,7 @@ class FServer(server.Node):
             s.recv(1)  # for ack
             s.send(sdfsfileid.encode())
 
+    # handles delete
     def handle_delete_request(self, conn: socket.socket):
         conn.send(b'1')
         sdfsfileid = conn.recv(BUFFER_SIZE).decode()
@@ -425,6 +439,7 @@ class FServer(server.Node):
                      (self.master_ip, self.master_port))
         return
 
+    # handles ls
     def handle_ls(self, sdfsfileid, ip):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
@@ -441,6 +456,7 @@ class FServer(server.Node):
                 self.ls_cache[sdfsfileid].append(id)
                 self.ls_lock.release()
 
+    # handles ls request
     def handle_ls_request(self, conn: socket.socket):
         conn.send(b'1')
         sdfsfileid = conn.recv(BUFFER_SIZE).decode()
@@ -483,6 +499,7 @@ class FServer(server.Node):
             self.get_ack_cache[k] += 1
             self.get_lock.release()
 
+    # handles multiple get
     def handle_multiple_get_request(self, conn: socket.socket):
         conn.send(b'1')
         decoded = json.loads(conn.recv(BUFFER_SIZE).decode())
@@ -500,11 +517,13 @@ class FServer(server.Node):
         conn.send(header_bytes)
         conn.send(data)
 
+    # executes the batch, called when "executeBranch" is called
     def handle_execute(self, conn: socket.socket):
         conn.send(b'1')
         command, input_file, model_name, indices = json.loads(conn.recv(BUFFER_SIZE).decode())
         start, end = indices
 
+        # update seen_jobs with input_file
         with self.seen_lock:
             if input_file not in self.seen_jobs:
                 self.seen_jobs.add(input_file)
@@ -512,7 +531,7 @@ class FServer(server.Node):
         with open(input_file, "r") as i_f:
             mode = "a"
             if model_name not in self.models:
-                # TODO: initialize models
+                # initialize models
                 if model_name == 'resnet':
                     self.models[model_name] = ResNet50(weights='imagenet')
                 elif model_name == 'mobilenet':
@@ -540,10 +559,12 @@ class FServer(server.Node):
                     preds = model.predict(x)
                     predictions.append(decode_predictions(preds, top=1)[0][0][1])
         
+        # when the batch has finished executing, send out a finished batch command
         cmd = ["finishedBatch", self.host, predictions, int((1000 * (datetime.now() - start_time).total_seconds())), end - start]
         self.handle_send(cmd, MASTER_HOST)
         print("finished with local batch!")
 
+    # when a node is done working on its batch, remove it from running_batches and call reassign
     def handle_finished(self, conn: socket.socket):
         conn.send(b'1')
         _, finished_ip, predictions, time, query_size = json.loads(conn.recv(BUFFER_SIZE).decode())
@@ -555,12 +576,14 @@ class FServer(server.Node):
                 self.running_batches.pop(finished_ip)
         self.reassign()
 
+    # handle node failure and reassign jobs if a node fails; assign batches to nodes 
     def reassign(self):
         with self.members_lock:
             if len(self.membership_list) == 0:
                 print("no workers found! exiting")
                 exit(1)
 
+            # handle failure
             failed = set()
             with self.batches_lock:
                 working_nodes = set(self.running_batches.keys())
@@ -570,10 +593,11 @@ class FServer(server.Node):
                     self.batch_queue.put(self.running_batches[i])
                     self.running_batches.pop(i)
 
-
+                # assign batches to nodes
                 for m in self.membership_list:
                     if m not in self.running_batches:
                         host = m.split(":")[0]
+                        # don't assign a batch to a node if that node is the master or hotstandby
                         if host == self.master_ip or host == STANDBY_HOST:
                             continue
                         
@@ -585,6 +609,7 @@ class FServer(server.Node):
                             with self.finished_lock:
                                 finished = True
 
+    # handles the inference, gets each value passed into the input, adds values to batch_queue to be processed, reassigns the batches
     def handle_inference(self, config):
         print("in inference!")
         with open(config, "r") as f:
@@ -593,6 +618,7 @@ class FServer(server.Node):
             if self.host != STANDBY_HOST:
                 self.handle_send(["beginningInference", config], STANDBY_HOST)
 
+            # handle input requirements
             for job in jobs:
                 name = job["name"]
                 enabled = job["enabled"]
@@ -627,11 +653,13 @@ class FServer(server.Node):
 
                 num_batches = ceil(num_queries/batch_size)
 
+                # update batch_queue
                 with self.batches_lock:
                     for start in range(num_batches):
                         idx = (start * batch_size, min((start + 1) * batch_size, num_queries))
                         self.batch_queue.put((input_source, model_name, idx))
 
+                # reassign batches to nodes
                 self.reassign()
 
                 finished = False
@@ -643,11 +671,13 @@ class FServer(server.Node):
 
         print("finished!")
 
+    # gets the conf command
     def handle_beginning(self, conn:socket.socket):
         conn.send(b'1')
         decoded_command = conn.recv(BUFFER_SIZE).decode()
         self.conf = decoded_command[1]
 
+    # put sdfsfileid localfilepath
     def put(self, localfilepath, sdfsfileid):
         ips = self.get_ip(sdfsfileid)
         if not ips:
@@ -699,19 +729,21 @@ class FServer(server.Node):
                 f.write(data)
             print('get complete.')
 
+    # mulitcasts out the leader
     def multicast_leader(self):
         for member in self.membership_list:
             host = member.split(":")[0]
             t = threading.Thread(target=self.handle_send, args=(["newLeader", self.host],host))
             t.start()
 
+    # checks if the leader has failed by checking if the master exists in the membership list
     def check_leader(self):
         global MASTER_HOST
         while True:
             with self.members_lock:
                 if MASTER_HOST not in set(map(lambda x: x.split(":")[0], self.membership_list)):
                     print("MASTER FAILED!")
-                    threading.Thread(target=self.multicast_leader()).start()
+                    threading.Thread(target=self.multicast_leader).start()
                     MASTER_HOST = self.host
                     t = threading.Thread(target=self.handle_inference, args=(self.conf,))
                     t.start()
@@ -777,6 +809,7 @@ class FServer(server.Node):
                     with open(localfilepath, 'wb') as f:
                         f.write(data)
                     print('get complete.')
+            # command to run the inference
             elif parsed_command[0] == 'inference':
                 config = parsed_command[1]
                 t = threading.Thread(target=self.handle_inference, args=(config,))
