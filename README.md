@@ -1,4 +1,4 @@
-# MP4
+# Distributed Machine Learning Inference Platform
 
 ## How to run the project:
 
